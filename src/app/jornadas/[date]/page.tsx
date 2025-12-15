@@ -1,120 +1,86 @@
 import Link from "next/link";
-import { loadGames, loadMatches, loadPlayers } from "@/lib/sheets";
-import { buildSessions, sessionTotals } from "@/lib/sessions";
+import { loadMatches } from "@/lib/sheets";
 
-export default async function JornadaDetallePage({
+export const dynamic = "force-dynamic";
+
+function safeStr(v: unknown) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
+}
+
+export default async function JornadaDetail({
   params,
 }: {
-  params: Promise<{ date: string }>;
+  params: { date: string };
 }) {
-  const { date } = await params;
+  let rows: any[] = [];
+  let errorMsg = "";
 
-  const [players, games, matches] = await Promise.all([
-    loadPlayers(),
-    loadGames(),
-    loadMatches(),
-  ]);
+  try {
+    const raw = await loadMatches();
 
-  const sessions = buildSessions(players, games, matches);
-  const session = sessions.find((s) => s.session_date === date);
-
-  if (!session) {
-    return (
-      <main style={{ maxWidth: 1000, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-        <p>
-          <Link href="/jornadas">← Volver</Link>
-        </p>
-        <h1>Jornada no encontrada</h1>
-        <p>No existe una jornada con fecha: {date}</p>
-      </main>
-    );
+    rows = raw
+      .map((m: any) => ({
+        session_date: safeStr(m?.session_date),
+        game_id: safeStr(m?.game_id),
+        start_time: safeStr(m?.start_time),
+        p1: safeStr(m?.p1),
+        p2: safeStr(m?.p2),
+        p3: safeStr(m?.p3),
+        p4: safeStr(m?.p4),
+        p5: safeStr(m?.p5),
+      }))
+      .filter((m) => m.session_date === params.date);
+  } catch (e: any) {
+    errorMsg = e?.message ? String(e.message) : "Error cargando jornada";
   }
 
-  const totals = sessionTotals(session);
-
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
+      <h1>Jornada {params.date}</h1>
 
-      <h1>Jornada: {session.session_date}</h1>
-
-      <section style={{ marginTop: 16 }}>
-        <h2>Resumen del día</h2>
-        {totals.length === 0 ? (
-          <p>No hay partidas cargadas para esta fecha.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={thL}>#</th>
-                <th style={thL}>Jugador</th>
-                <th style={thR}>Puntos</th>
-                <th style={thR}>Victorias</th>
-              </tr>
-            </thead>
-            <tbody>
-              {totals.map((t, i) => (
-                <tr key={t.player_id} style={{ borderBottom: "1px solid #eee" }}>
-                  <td style={tdL}>{i + 1}</td>
-                  <td style={tdL}>{t.name}</td>
-                  <td style={tdR}>{t.points.toFixed(2)}</td>
-                  <td style={tdR}>{t.wins}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section style={{ marginTop: 24 }}>
-        <h2>Partidas</h2>
-
-        <div style={{ display: "grid", gap: 12 }}>
-          {session.matches.map((m, idx) => (
-            <div key={idx} style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-                <div>
-                  <b>{m.game_name}</b>{" "}
-                  <span style={{ opacity: 0.7 }}>
-                    (×{m.multiplier}) · {m.start_time}
-                  </span>
-                </div>
-              </div>
-
-              <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
-                <thead>
-                  <tr>
-                    <th style={thL}>Puesto</th>
-                    <th style={thL}>Jugador</th>
-                    <th style={thR}>Puntos</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {m.placements.map((p) => (
-                    <tr key={p.player_id} style={{ borderBottom: "1px solid #eee" }}>
-                      <td style={tdL}>{p.place}</td>
-                      <td style={tdL}>{p.name}</td>
-                      <td style={tdR}>{p.points.toFixed(2)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ))}
+      {errorMsg ? (
+        <div style={errorBox}>
+          <b>Error</b>
+          <div style={mono}>{errorMsg}</div>
         </div>
-      </section>
+      ) : rows.length === 0 ? (
+        <p>No hay partidas para esta fecha.</p>
+      ) : (
+        rows.map((r, i) => (
+          <div key={i} style={card}>
+            <b>{r.game_id || "Juego desconocido"}</b>
+            <div>Hora: {r.start_time || "?"}</div>
+            <div>
+              Jugadores: {[r.p1, r.p2, r.p3, r.p4, r.p5].filter(Boolean).join(", ")}
+            </div>
+          </div>
+        ))
+      )}
+
+      <p style={{ marginTop: 24 }}>
+        <Link href="/jornadas">← Volver a jornadas</Link>
+      </p>
     </main>
   );
 }
 
-const thL: React.CSSProperties = {
-  textAlign: "left",
-  borderBottom: "1px solid #ddd",
-  padding: 8,
+const card: React.CSSProperties = {
+  border: "1px solid #ddd",
+  borderRadius: 12,
+  padding: 12,
+  marginTop: 12,
 };
-const thR: React.CSSProperties = {
-  textAlign: "right",
-  borderBottom: "1px solid #ddd",
-  padding: 8,
+
+const errorBox: React.CSSProperties = {
+  border: "1px solid #f5c2c2",
+  background: "#fff5f5",
+  padding: 12,
+  borderRadius: 12,
 };
-const tdL: React.CSSProperties = { padding: 8, textAlign: "left" };
-const tdR: React.CSSProperties = { padding: 8, textAlign: "right" };
+
+const mono: React.CSSProperties = {
+  marginTop: 8,
+  fontFamily: "monospace",
+  fontSize: 12,
+};

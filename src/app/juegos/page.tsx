@@ -1,5 +1,6 @@
 import { loadGames } from "@/lib/sheets";
 import GamesClient from "./ui";
+export const dynamic = "force-dynamic";
 
 export default async function JuegosPage() {
   const games = await loadGames();

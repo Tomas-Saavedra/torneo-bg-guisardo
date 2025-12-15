@@ -1,76 +1,79 @@
 import Link from "next/link";
-import { loadGames, loadMatches, loadPlayers } from "@/lib/sheets";
-import { buildSessions, sessionTotals } from "@/lib/sessions";
+import { loadMatches } from "@/lib/sheets";
+
+export const dynamic = "force-dynamic";
+
+function safeStr(v: unknown) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
+}
 
 export default async function JornadasPage() {
-  const [players, games, matches] = await Promise.all([
-    loadPlayers(),
-    loadGames(),
-    loadMatches(),
-  ]);
+  let matches: any[] = [];
+  let errorMsg = "";
 
-  const sessions = buildSessions(players, games, matches);
+  try {
+    const raw = await loadMatches();
+
+    matches = raw
+      .map((m: any) => ({
+        session_date: safeStr(m?.session_date),
+        game_id: safeStr(m?.game_id),
+        start_time: safeStr(m?.start_time),
+      }))
+      .filter((m) => m.session_date.length > 0);
+  } catch (e: any) {
+    errorMsg = e?.message ? String(e.message) : "Error cargando jornadas";
+  }
+
+  const byDate = new Map<string, number>();
+  for (const m of matches) {
+    byDate.set(m.session_date, (byDate.get(m.session_date) ?? 0) + 1);
+  }
+
+  const dates = Array.from(byDate.entries()).sort((a, b) =>
+    a[0].localeCompare(b[0])
+  );
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
       <h1>Jornadas</h1>
-      <p style={{ opacity: 0.8 }}>
-        Acá se listan las jornadas (por fecha) con sus partidas oficiales.
-      </p>
 
-      {sessions.length === 0 ? (
-        <p>No hay jornadas todavía. Cargá partidas en la pestaña Matches.</p>
-      ) : (
-        <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-          {sessions.map((s) => {
-            const totals = sessionTotals(s);
-            const top = totals[0];
-
-            return (
-              <div
-                key={s.session_date}
-                style={{ border: "1px solid #ddd", borderRadius: 10, padding: 12 }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div>
-                    <h2 style={{ margin: 0 }}>
-                      <Link href={`/jornadas/${encodeURIComponent(s.session_date)}`}>
-                        {s.session_date}
-                      </Link>
-                    </h2>
-                    <div style={{ opacity: 0.7, marginTop: 4 }}>
-                      Partidas: <b>{s.matches.length}</b>
-                      {top ? (
-                        <>
-                          {" · "}Ganador del día: <b>{top.name}</b> ({top.points.toFixed(2)} pts)
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div style={{ opacity: 0.7 }}>
-                    <Link href={`/jornadas/${encodeURIComponent(s.session_date)}`}>
-                      Ver detalle →
-                    </Link>
-                  </div>
-                </div>
-
-                {totals.length > 0 && (
-                  <div style={{ marginTop: 10, opacity: 0.9 }}>
-                    <b>Top 3:</b>{" "}
-                    {totals.slice(0, 3).map((t, i) => (
-                      <span key={t.player_id}>
-                        {i > 0 ? " · " : ""}
-                        {t.name} ({t.points.toFixed(2)})
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      {errorMsg ? (
+        <div style={errorBox}>
+          <b>Error cargando jornadas</b>
+          <div style={mono}>{errorMsg}</div>
         </div>
+      ) : dates.length === 0 ? (
+        <p>No hay jornadas cargadas.</p>
+      ) : (
+        <ul>
+          {dates.map(([date, count]) => (
+            <li key={date}>
+              <Link href={`/jornadas/${date}`}>
+                {date} ({count} partidas)
+              </Link>
+            </li>
+          ))}
+        </ul>
       )}
+
+      <p style={{ marginTop: 24 }}>
+        <Link href="/">← Volver al inicio</Link>
+      </p>
     </main>
   );
 }
+
+const errorBox: React.CSSProperties = {
+  border: "1px solid #f5c2c2",
+  background: "#fff5f5",
+  padding: 12,
+  borderRadius: 12,
+};
+
+const mono: React.CSSProperties = {
+  marginTop: 8,
+  fontFamily: "monospace",
+  fontSize: 12,
+};
