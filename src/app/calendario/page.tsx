@@ -1,27 +1,45 @@
 import { loadSchedule } from "@/lib/sheets";
 
+function safeStr(v: any) {
+  return (v ?? "").toString().trim();
+}
+
 function parseLocalDate(dateStr: string) {
-  // Espera YYYY-MM-DD
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, (m ?? 1) - 1, d ?? 1, 0, 0, 0, 0);
+  // Espera YYYY-MM-DD; si viene mal, devolvemos null
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  if (!y || !mo || !d) return null;
+  return new Date(y, mo - 1, d, 0, 0, 0, 0);
 }
 
 function statusFor(dateStr: string) {
   const today = new Date();
   const today0 = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   const d = parseLocalDate(dateStr);
-
+  if (!d) return "unknown";
   if (d.getTime() < today0.getTime()) return "past";
   if (d.getTime() === today0.getTime()) return "today";
   return "future";
 }
 
 export default async function CalendarioPage() {
-  const schedule = await loadSchedule();
+  const scheduleRaw = await loadSchedule();
+
+  // Normalizamos y filtramos filas incompletas
+  const schedule = scheduleRaw
+    .map((s) => ({
+      date: safeStr(s.date),
+      start_time: safeStr(s.start_time),
+      end_time: safeStr(s.end_time),
+      location: safeStr(s.location),
+      notes: safeStr(s.notes),
+    }))
+    .filter((s) => s.date.length > 0); // si la fecha está vacía, descartamos la fila
 
   const sorted = [...schedule].sort((a, b) => a.date.localeCompare(b.date));
-
-  // Próxima = la primera que no sea pasada
   const nextIdx = sorted.findIndex((s) => statusFor(s.date) !== "past");
 
   return (
@@ -32,7 +50,7 @@ export default async function CalendarioPage() {
       </p>
 
       {sorted.length === 0 ? (
-        <p>No hay fechas cargadas.</p>
+        <p>No hay fechas cargadas (o todas las filas están vacías).</p>
       ) : (
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
           {sorted.map((s, idx) => {
@@ -49,26 +67,18 @@ export default async function CalendarioPage() {
                   background: isNext ? "#f6fff7" : "#fff",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
-                  <div>
-                    <h2 style={{ margin: 0, fontSize: 18 }}>
-                      {s.date}{" "}
-                      {isNext ? (
-                        <span style={badgeStyle}>Próxima</span>
-                      ) : st === "today" ? (
-                        <span style={badgeStyle}>Hoy</span>
-                      ) : st === "past" ? (
-                        <span style={{ ...badgeStyle, opacity: 0.7 }}>Pasada</span>
-                      ) : (
-                        <span style={{ ...badgeStyle, opacity: 0.85 }}>Futura</span>
-                      )}
-                    </h2>
-                    <div style={{ marginTop: 6, opacity: 0.8 }}>
-                      🕒 {s.start_time}–{s.end_time} {s.location ? `· 📍 ${s.location}` : ""}
-                    </div>
-                    {s.notes ? <div style={{ marginTop: 6 }}>📝 {s.notes}</div> : null}
-                  </div>
+                <h2 style={{ margin: 0, fontSize: 18 }}>
+                  {s.date} <span style={badgeStyle}>
+                    {isNext ? "Próxima" : st === "today" ? "Hoy" : st === "past" ? "Pasada" : st === "future" ? "Futura" : "Sin fecha válida"}
+                  </span>
+                </h2>
+
+                <div style={{ marginTop: 6, opacity: 0.8 }}>
+                  🕒 {s.start_time || "?"}–{s.end_time || "?"}{" "}
+                  {s.location ? `· 📍 ${s.location}` : ""}
                 </div>
+
+                {s.notes ? <div style={{ marginTop: 6 }}>📝 {s.notes}</div> : null}
               </div>
             );
           })}
