@@ -1,11 +1,14 @@
 import { loadSchedule } from "@/lib/sheets";
 
-function safeStr(v: any) {
-  return (v ?? "").toString().trim();
+// ✅ Esto evita que Next intente prerender/SSG en build
+export const dynamic = "force-dynamic";
+
+function safeStr(v: unknown) {
+  if (v === null || v === undefined) return "";
+  return String(v).trim();
 }
 
 function parseLocalDate(dateStr: string) {
-  // Espera YYYY-MM-DD; si viene mal, devolvemos null
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
   if (!m) return null;
   const y = Number(m[1]);
@@ -26,34 +29,56 @@ function statusFor(dateStr: string) {
 }
 
 export default async function CalendarioPage() {
-  const scheduleRaw = await loadSchedule();
+  let schedule: Array<{
+    date: string;
+    start_time: string;
+    end_time: string;
+    location: string;
+    notes: string;
+  }> = [];
 
-  // Normalizamos y filtramos filas incompletas
-  const schedule = scheduleRaw
-    .map((s) => ({
-      date: safeStr(s.date),
-      start_time: safeStr(s.start_time),
-      end_time: safeStr(s.end_time),
-      location: safeStr(s.location),
-      notes: safeStr(s.notes),
-    }))
-    .filter((s) => s.date.length > 0); // si la fecha está vacía, descartamos la fila
+  let errorMsg = "";
 
-  const sorted = [...schedule].sort((a, b) => a.date.localeCompare(b.date));
-  const nextIdx = sorted.findIndex((s) => statusFor(s.date) !== "past");
+  try {
+    const raw = await loadSchedule();
+
+    schedule = raw
+      .map((s: any) => ({
+        date: safeStr(s?.date),
+        start_time: safeStr(s?.start_time),
+        end_time: safeStr(s?.end_time),
+        location: safeStr(s?.location),
+        notes: safeStr(s?.notes),
+      }))
+      .filter((s) => s.date.length > 0);
+
+    schedule.sort((a, b) => a.date.localeCompare(b.date));
+  } catch (e: any) {
+    errorMsg = e?.message ? String(e.message) : "Error desconocido cargando Schedule";
+  }
+
+  const nextIdx = schedule.findIndex((s) => statusFor(s.date) !== "past");
 
   return (
     <main style={{ maxWidth: 1000, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
       <h1>Calendario</h1>
       <p style={{ opacity: 0.8 }}>
-        Próximas fechas de la liga (según la pestaña <b>Schedule</b>).
+        Próximas fechas de la liga (pestaña <b>Schedule</b>).
       </p>
 
-      {sorted.length === 0 ? (
-        <p>No hay fechas cargadas (o todas las filas están vacías).</p>
+      {errorMsg ? (
+        <div style={{ border: "1px solid #f5c2c2", background: "#fff5f5", padding: 12, borderRadius: 12 }}>
+          <b>No se pudo cargar el calendario.</b>
+          <div style={{ marginTop: 6, fontFamily: "monospace", fontSize: 12 }}>{errorMsg}</div>
+          <div style={{ marginTop: 8, opacity: 0.8 }}>
+            Tip: revisá que las variables de entorno de Schedule estén en <b>Production</b> y que el CSV sea público.
+          </div>
+        </div>
+      ) : schedule.length === 0 ? (
+        <p>No hay fechas cargadas (o las filas están vacías).</p>
       ) : (
         <div style={{ marginTop: 16, display: "grid", gap: 12 }}>
-          {sorted.map((s, idx) => {
+          {schedule.map((s, idx) => {
             const st = statusFor(s.date);
             const isNext = idx === nextIdx;
 
@@ -68,14 +93,22 @@ export default async function CalendarioPage() {
                 }}
               >
                 <h2 style={{ margin: 0, fontSize: 18 }}>
-                  {s.date} <span style={badgeStyle}>
-                    {isNext ? "Próxima" : st === "today" ? "Hoy" : st === "past" ? "Pasada" : st === "future" ? "Futura" : "Sin fecha válida"}
+                  {s.date}{" "}
+                  <span style={badgeStyle}>
+                    {isNext
+                      ? "Próxima"
+                      : st === "today"
+                      ? "Hoy"
+                      : st === "past"
+                      ? "Pasada"
+                      : st === "future"
+                      ? "Futura"
+                      : "Sin fecha válida"}
                   </span>
                 </h2>
 
                 <div style={{ marginTop: 6, opacity: 0.8 }}>
-                  🕒 {s.start_time || "?"}–{s.end_time || "?"}{" "}
-                  {s.location ? `· 📍 ${s.location}` : ""}
+                  🕒 {s.start_time || "?"}–{s.end_time || "?"} {s.location ? `· 📍 ${s.location}` : ""}
                 </div>
 
                 {s.notes ? <div style={{ marginTop: 6 }}>📝 {s.notes}</div> : null}
