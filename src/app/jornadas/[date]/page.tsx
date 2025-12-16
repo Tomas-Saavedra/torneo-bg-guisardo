@@ -1,86 +1,81 @@
 import Link from "next/link";
-import { loadMatches } from "@/lib/sheets";
+import { loadGames, loadMatches, loadSchedule } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
-function safeStr(v: unknown) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
+function safeStr(v: unknown): string {
+  return v === null || v === undefined ? "" : String(v).trim();
 }
 
-export default async function JornadaDetail({
+export default async function JornadaByDatePage({
   params,
 }: {
   params: { date: string };
 }) {
-  let rows: any[] = [];
-  let errorMsg = "";
+  const date = safeStr(params.date);
 
-  try {
-    const raw = await loadMatches();
+  const [games, matches, schedule] = await Promise.all([
+    loadGames(),
+    loadMatches(),
+    loadSchedule(),
+  ]);
 
-    rows = raw
-      .map((m: any) => ({
-        session_date: safeStr(m?.session_date),
-        game_id: safeStr(m?.game_id),
-        start_time: safeStr(m?.start_time),
-        p1: safeStr(m?.p1),
-        p2: safeStr(m?.p2),
-        p3: safeStr(m?.p3),
-        p4: safeStr(m?.p4),
-        p5: safeStr(m?.p5),
-      }))
-      .filter((m) => m.session_date === params.date);
-  } catch (e: any) {
-    errorMsg = e?.message ? String(e.message) : "Error cargando jornada";
-  }
+  const daySchedule = schedule.find((s) => s.date === date);
+
+  const matchesOfDay = matches.filter(
+    (m) => safeStr(m.session_date) === date
+  );
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 16 }}>
-      <h1>Jornada {params.date}</h1>
+    <main style={{ padding: 24 }}>
+      <Link href="/jornadas">← Volver a jornadas</Link>
 
-      {errorMsg ? (
-        <div style={errorBox}>
-          <b>Error</b>
-          <div style={mono}>{errorMsg}</div>
-        </div>
-      ) : rows.length === 0 ? (
-        <p>No hay partidas para esta fecha.</p>
-      ) : (
-        rows.map((r, i) => (
-          <div key={i} style={card}>
-            <b>{r.game_id || "Juego desconocido"}</b>
-            <div>Hora: {r.start_time || "?"}</div>
-            <div>
-              Jugadores: {[r.p1, r.p2, r.p3, r.p4, r.p5].filter(Boolean).join(", ")}
-            </div>
-          </div>
-        ))
+      <h1 style={{ marginTop: 12 }}>Jornada {date}</h1>
+
+      {daySchedule && (
+        <p style={{ marginTop: 4, color: "#555" }}>
+          {daySchedule.start_time ?? ""}{" "}
+          {daySchedule.end_time ? `– ${daySchedule.end_time}` : ""}{" "}
+          {daySchedule.location ? `· ${daySchedule.location}` : ""}
+        </p>
       )}
 
-      <p style={{ marginTop: 24 }}>
-        <Link href="/jornadas">← Volver a jornadas</Link>
-      </p>
+      <h2 style={{ marginTop: 24 }}>Partidas</h2>
+
+      {matchesOfDay.length === 0 ? (
+        <p>No hay partidas cargadas para esta jornada.</p>
+      ) : (
+        <ul style={{ marginTop: 12 }}>
+          {matchesOfDay.map((m, idx) => {
+            const game = games.find((g) => g.game_id === m.game_id);
+
+            const players = [m.p1, m.p2, m.p3, m.p4, m.p5]
+              .map(safeStr)
+              .filter(Boolean);
+
+            return (
+              <li
+                key={idx}
+                style={{
+                  marginBottom: 12,
+                  padding: 12,
+                  border: "1px solid #ddd",
+                  borderRadius: 6,
+                }}
+              >
+                <strong>{game?.name ?? m.game_id}</strong>
+                <div style={{ fontSize: 14, color: "#555" }}>
+                  Hora: {m.start_time ?? "—"}
+                </div>
+                <div style={{ marginTop: 4 }}>
+                  Jugadores: {players.join(", ")}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </main>
   );
 }
-
-const card: React.CSSProperties = {
-  border: "1px solid #ddd",
-  borderRadius: 12,
-  padding: 12,
-  marginTop: 12,
-};
-
-const errorBox: React.CSSProperties = {
-  border: "1px solid #f5c2c2",
-  background: "#fff5f5",
-  padding: 12,
-  borderRadius: 12,
-};
-
-const mono: React.CSSProperties = {
-  marginTop: 8,
-  fontFamily: "monospace",
-  fontSize: 12,
-};

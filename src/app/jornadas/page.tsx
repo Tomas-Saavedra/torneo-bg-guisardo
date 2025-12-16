@@ -1,128 +1,123 @@
+// src/app/jornadas/page.tsx
 import Link from "next/link";
-import { loadPlayers, loadGames, loadSchedule, loadMatches } from "@/lib/sheets";
+import { loadSchedule, loadMatches } from "@/lib/sheets";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 function safeStr(v: unknown) {
-  if (v === null || v === undefined) return "";
-  return String(v).trim();
+  return v === null || v === undefined ? "" : String(v).trim();
 }
 
-function ErrorBox({ title, msg }: { title: string; msg: string }) {
-  return (
-    <div
-      style={{
-        border: "1px solid #f5c2c2",
-        background: "#fff5f5",
-        padding: 12,
-        borderRadius: 12,
-        marginTop: 16,
-      }}
-    >
-      <b>{title}</b>
-      <div style={{ marginTop: 8, fontFamily: "monospace", fontSize: 12 }}>{msg}</div>
-      <div style={{ marginTop: 8, opacity: 0.8 }}>
-        Tip: revisá que tus variables de entorno estén cargadas en <b>Production</b> y que los CSV de Sheets estén “Publish to web”.
-      </div>
-    </div>
+export default async function JornadasPage() {
+  const [schedule, matches] = await Promise.all([loadSchedule(), loadMatches()]);
+
+  // Fechas desde schedule
+  const scheduleDates = schedule
+    .map((s: any) => safeStr(s.date))
+    .filter(Boolean);
+
+  // Fechas desde matches (por si no está en schedule)
+  const matchDates = matches
+    .map((m: any) => safeStr(m.session_date))
+    .filter(Boolean);
+
+  const allDates = Array.from(new Set([...scheduleDates, ...matchDates])).sort((a, b) =>
+    a.localeCompare(b)
   );
-}
 
-export default async function HomePage() {
-  try {
-    // Cargamos todo pero sin romper si algo viene raro
-    const [playersRaw, gamesRaw, scheduleRaw, matchesRaw] = await Promise.all([
-      loadPlayers().catch((e) => ({ __error: e })),
-      loadGames().catch((e) => ({ __error: e })),
-      loadSchedule().catch((e) => ({ __error: e })),
-      loadMatches().catch((e) => ({ __error: e })),
-    ]);
+  // Próxima fecha: la primera >= hoy (si no hay, la última)
+  const today = new Date().toISOString().slice(0, 10);
+  const nextDate =
+    allDates.find((d) => d >= today) ?? (allDates.length ? allDates[allDates.length - 1] : "");
 
-    const err =
-      (playersRaw as any)?.__error ||
-      (gamesRaw as any)?.__error ||
-      (scheduleRaw as any)?.__error ||
-      (matchesRaw as any)?.__error;
-
-    if (err) {
-      const msg = err?.message ? String(err.message) : String(err);
-      return (
-        <main style={{ maxWidth: 900, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-          <h1>Liga de Juegos de Mesa</h1>
-          <p>El deploy está ok, pero hubo un error cargando datos.</p>
-          <ErrorBox title="Error cargando Sheets" msg={msg} />
-
-          <nav style={{ marginTop: 16, display: "flex", gap: 12, flexWrap: "wrap" }}>
-            <Link href="/ranking">Ranking</Link>
-            <Link href="/jornadas">Jornadas</Link>
-            <Link href="/juegos">Juegos</Link>
-            <Link href="/calendario">Calendario</Link>
-          </nav>
-        </main>
-      );
-    }
-
-    const players = Array.isArray(playersRaw) ? playersRaw : [];
-    const games = Array.isArray(gamesRaw) ? gamesRaw : [];
-    const schedule = Array.isArray(scheduleRaw) ? scheduleRaw : [];
-    const matches = Array.isArray(matchesRaw) ? matchesRaw : [];
-
-    // Próxima fecha: buscamos la primera con date válida (si hay)
-    const scheduleNormalized = schedule
-      .map((s: any) => ({
-        date: safeStr(s?.date),
-        start: safeStr(s?.start_time),
-        end: safeStr(s?.end_time),
-        location: safeStr(s?.location),
-      }))
-      .filter((s) => s.date.length > 0)
-      .sort((a, b) => a.date.localeCompare(b.date));
-
-    const next = scheduleNormalized[0];
-
-    return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-        <h1>Liga de Juegos de Mesa</h1>
-
-        <nav style={{ marginTop: 12, display: "flex", gap: 12, flexWrap: "wrap" }}>
-          <Link href="/">Inicio</Link>
-          <Link href="/ranking">Ranking</Link>
-          <Link href="/jornadas">Jornadas</Link>
-          <Link href="/juegos">Juegos</Link>
-          <Link href="/calendario">Calendario</Link>
-        </nav>
-
-        <section style={{ marginTop: 18 }}>
-          <h2 style={{ marginBottom: 6 }}>Próxima fecha</h2>
-          {next ? (
-            <div style={{ border: "1px solid #ddd", borderRadius: 12, padding: 12 }}>
-              <div>
-                <b>{next.date}</b> {next.start ? ` ${next.start}` : ""}{next.end ? `–${next.end}` : ""}{" "}
-                {next.location ? `· ${next.location}` : ""}
-              </div>
-            </div>
-          ) : (
-            <p>No hay fechas cargadas.</p>
-          )}
-        </section>
-
-        <section style={{ marginTop: 18, opacity: 0.85 }}>
-          <h3>Debug rápido</h3>
-          <div>
-            Players: {players.length} · Games: {games.length} · Matches: {matches.length} · Schedule: {schedule.length}
-          </div>
-        </section>
-      </main>
-    );
-  } catch (e: any) {
-    // Catch final: no se cae nunca la home
-    const msg = e?.message ? String(e.message) : String(e);
-    return (
-      <main style={{ maxWidth: 900, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-        <h1>Liga de Juegos de Mesa</h1>
-        <ErrorBox title="Error inesperado en el servidor" msg={msg} />
-      </main>
-    );
+  const scheduleByDate = new Map<string, any>();
+  for (const s of schedule as any[]) {
+    const d = safeStr(s.date);
+    if (d) scheduleByDate.set(d, s);
   }
+
+  return (
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
+      <h1 style={{ marginBottom: 8 }}>Jornadas</h1>
+      <p style={{ marginTop: 0, opacity: 0.8 }}>
+        Elegí una fecha para ver los matches y resultados.
+      </p>
+
+      <section style={{ marginTop: 16 }}>
+        <h2 style={{ marginBottom: 8 }}>Próxima fecha</h2>
+        {nextDate ? (
+          <div
+            style={{
+              border: "1px solid #e5e5e5",
+              borderRadius: 10,
+              padding: 12,
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 700 }}>{nextDate}</div>
+              {scheduleByDate.get(nextDate) ? (
+                <div style={{ opacity: 0.8, marginTop: 4 }}>
+                  {safeStr(scheduleByDate.get(nextDate)?.start_time) || "?"}–
+                  {safeStr(scheduleByDate.get(nextDate)?.end_time) || "?"}
+                  {" · "}
+                  {safeStr(scheduleByDate.get(nextDate)?.location) || "Sin ubicación"}
+                </div>
+              ) : (
+                <div style={{ opacity: 0.8, marginTop: 4 }}>Sin info en Schedules</div>
+              )}
+            </div>
+
+            <Link
+              href={`/jornadas/${encodeURIComponent(nextDate)}`}
+              style={{
+                padding: "10px 12px",
+                borderRadius: 10,
+                border: "1px solid #ddd",
+                textDecoration: "none",
+              }}
+            >
+              Ver jornada →
+            </Link>
+          </div>
+        ) : (
+          <p>No hay fechas cargadas todavía.</p>
+        )}
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <h2 style={{ marginBottom: 8 }}>Todas las fechas</h2>
+
+        {allDates.length === 0 ? (
+          <p>No hay jornadas para listar.</p>
+        ) : (
+          <ul style={{ paddingLeft: 18, marginTop: 8 }}>
+            {allDates.map((d) => {
+              const sched = scheduleByDate.get(d);
+              const subtitle = sched
+                ? `${safeStr(sched.start_time) || "?"}–${safeStr(sched.end_time) || "?"} · ${
+                    safeStr(sched.location) || "Sin ubicación"
+                  }`
+                : "Sin info en Schedules";
+
+              const playedCount = (matches as any[]).filter((m) => safeStr(m.session_date) === d)
+                .length;
+
+              return (
+                <li key={d} style={{ marginBottom: 8 }}>
+                  <Link href={`/jornadas/${encodeURIComponent(d)}`}>{d}</Link>
+                  <span style={{ opacity: 0.75 }}>{" — "}{subtitle}</span>
+                  <span style={{ opacity: 0.75 }}>{" · "}{playedCount} match(es)</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </section>
+    </main>
+  );
 }
