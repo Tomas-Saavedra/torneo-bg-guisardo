@@ -1,5 +1,7 @@
 import { loadGames, loadMatches, loadPlayers, loadSchedule } from "@/lib/sheets";
 import { computeLeaderboard } from "@/lib/league";
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function Home() {
   const [players, games, matches, schedule] = await Promise.all([
