@@ -1,15 +1,12 @@
-import { parseCsv } from "./csv";
+import { fetchCsv } from "./csv";
 
-export type Player = {
-  id: string;
-  name: string;
-};
+/* ===========================
+   TIPOS
+=========================== */
 
 export type Game = {
   id: string;
   name: string;
-  weight?: string;
-  image_url?: string;
 };
 
 export type ScheduleRow = {
@@ -31,43 +28,56 @@ export type MatchRow = {
   p5?: string;
 };
 
-async function fetchCsv(envName: string): Promise<Record<string, string>[]> {
-  const url = process.env[envName];
+/* ===========================
+   HELPERS
+=========================== */
 
-  // Guardrail absoluto: nunca rompe runtime
-  if (!url || typeof url !== "string") {
-    console.error(`❌ Missing env var: ${envName}`);
-    return [];
-  }
-
-  try {
-    const res = await fetch(url, { cache: "no-store" });
-
-    if (!res.ok) {
-      console.error(`❌ Fetch failed for ${envName}: ${res.status}`);
-      return [];
-    }
-
-    const text = await res.text();
-    return parseCsv(text);
-  } catch (err) {
-    console.error(`❌ Error fetching ${envName}`, err);
-    return [];
-  }
+function s(v: any): string {
+  return typeof v === "string" ? v.trim() : "";
 }
 
-export async function loadPlayers(): Promise<Player[]> {
-  return (await fetchCsv("SHEETS_PLAYERS_CSV_URL")) as unknown as Player[];
-}
+/* ===========================
+   LOADERS
+=========================== */
 
 export async function loadGames(): Promise<Game[]> {
-  return (await fetchCsv("SHEETS_GAMES_CSV_URL")) as unknown as Game[];
+  const rows = await fetchCsv("SHEETS_GAMES_CSV_URL");
+
+  return rows
+    .map((r: any) => ({
+      id: s(r.id),
+      name: s(r.name),
+    }))
+    .filter(g => g.id.length > 0 && g.name.length > 0);
 }
 
 export async function loadSchedule(): Promise<ScheduleRow[]> {
-  return (await fetchCsv("SHEETS_SCHEDULE_CSV_URL")) as unknown as ScheduleRow[];
+  const rows = await fetchCsv("SHEETS_SCHEDULE_CSV_URL");
+
+  return rows
+    .map((r: any) => ({
+      date: s(r.date),
+      start_time: s(r.start_time) || undefined,
+      end_time: s(r.end_time) || undefined,
+      location: s(r.location) || undefined,
+      notes: s(r.notes) || undefined,
+    }))
+    .filter(r => r.date.length > 0);
 }
 
 export async function loadMatches(): Promise<MatchRow[]> {
-  return (await fetchCsv("SHEETS_MATCHES_CSV_URL")) as unknown as MatchRow[];
+  const rows = await fetchCsv("SHEETS_MATCHES_CSV_URL");
+
+  return rows
+    .map((r: any) => ({
+      session_date: s(r.session_date),
+      game_id: s(r.game_id),
+      start_time: s(r.start_time) || undefined,
+      p1: s(r.p1) || undefined,
+      p2: s(r.p2) || undefined,
+      p3: s(r.p3) || undefined,
+      p4: s(r.p4) || undefined,
+      p5: s(r.p5) || undefined,
+    }))
+    .filter(r => r.session_date.length > 0 && r.game_id.length > 0);
 }
