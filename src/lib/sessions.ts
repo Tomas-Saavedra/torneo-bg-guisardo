@@ -1,91 +1,104 @@
-import type { Game, Match, Player } from "./sheets";
+// src/lib/sessions.ts
+import type { Game, MatchRow, Player } from "./sheets";
 import { calcMatchPoints } from "./scoring";
 
+/**
+ * Vista normalizada de una partida
+ * (para jornadas / sesiones)
+ */
 export type MatchView = {
-  session_date: string;
-  start_time: string;
-  game_id: string;
-  game_name: string;
-  multiplier: number;
-  placements: { player_id: string; name: string; place: number; points: number }[];
+  game: string;
+  gameId: number;
+  players: string[];
+  points: Record<string, number>;
+  winner: string | null;
 };
 
-export type SessionView = {
-  session_date: string;
-  matches: MatchView[];
-};
-
-export function buildSessions(players: Player[], games: Game[], matches: Match[]): SessionView[] {
-  const playerById = new Map(players.map((p) => [p.player_id, p]));
-  const gameById = new Map(games.map((g) => [g.game_id, g]));
-
-  const byDate = new Map<string, MatchView[]>();
-
-  for (const m of matches) {
-    const g = gameById.get(m.game_id);
-    if (!g) continue;
-
-    const ptsByPlayer = calcMatchPoints(m.placements, g.multiplier);
-
-    const placements = m.placements.map((pid, idx) => {
-      const p = playerById.get(pid);
-      return {
-        player_id: pid,
-        name: p?.name ?? pid,
-        place: idx + 1,
-        points: ptsByPlayer[pid] ?? 0,
-      };
-    });
-
-    const mv: MatchView = {
-      session_date: m.session_date,
-      start_time: m.start_time,
-      game_id: m.game_id,
-      game_name: g.name,
-      multiplier: g.multiplier,
-      placements,
-    };
-
-    if (!byDate.has(m.session_date)) byDate.set(m.session_date, []);
-    byDate.get(m.session_date)!.push(mv);
-  }
-
-  // Ordenar partidas por horario dentro de la jornada
-  const sessions: SessionView[] = Array.from(byDate.entries())
-    .map(([date, ms]) => ({
-      session_date: date,
-      matches: [...ms].sort((a, b) => a.start_time.localeCompare(b.start_time)),
-    }))
-    .sort((a, b) => b.session_date.localeCompare(a.session_date)); // más nuevas arriba
-
-  return sessions;
+function safeStr(v: unknown): string {
+  return v === null || v === undefined ? "" : String(v).trim();
 }
 
-export function sessionTotals(session: SessionView) {
-  const totals = new Map<string, { name: string; points: number; wins: number }>();
+function toNumber(v: unknown): number {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
 
-  for (const match of session.matches) {
-    const winner = match.placements[0]?.player_id;
-    for (const pl of match.placements) {
-      const cur = totals.get(pl.player_id) ?? { name: pl.name, points: 0, wins: 0 };
-      cur.points += pl.points;
-      if (winner && pl.player_id === winner) cur.wins += 1;
-      totals.set(pl.player_id, cur);
-    }
+/**
+ * Construye las partidas agrupadas por fecha (jornadas)
+ */
+export function buildSessions(args: {
+  players: Player[];
+  games: Game[];
+  matches: MatchRow[];
+}) {
+  const { players, games, matches } = args;
+
+  const playerNameById = new Map<string, string>();
+  for (const p of players) {
+    const id = safeStr((p as any).id);
+    const name = safeStr((p as any).name);
+    if (id) playerNameById.set(id, name || id);
   }
 
-  const arr = Array.from(totals.entries()).map(([player_id, v]) => ({
-    player_id,
-    name: v.name,
-    points: v.points,
-    wins: v.wins,
-  }));
+  const gameNameById = new Map<number, string>();
+  for (const g of games) {
+    const id = toNumber((g as any).id ?? (g as any).session);
+    const name = safeStr((g as any).game);
+    if (id) gameNameById.set(id, name || `Juego ${id}`);
+  }
 
-  arr.sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    return a.name.localeCompare(b.name);
-  });
+  // Agrupar por fecha
+  const sessions = new Map<string, MatchView[]>();
 
-  return arr;
+  for (const m of matches) {
+    const date = safeStr(m.session_date);
+    if (!date) continue;
+
+    const participants = [m.p1, m.p2, m.p3, m.p4, m.p5]
+      .map(safeStr)
+      .filter(Boolean);
+
+    if (!participants.length) continue;
+
+    const gameId = toNumber(m.game_id);
+    const gameName = gameNameById.get(gameId) ?? `Juego ${gameId}`;
+
+    const rawPoints = calcMatchPoints(participants, gameId);
+
+    const points: Record<string, number> = {};
+    let maxPts = -Infinity;
+    let winner: string | null = null;
+
+    for (const p of participants) {
+      const pid = safeStr(p);
+      const display = playerNameById.get(pid) || pid;
+      const pts = toNumber((rawPoints as any)[pid] ?? (rawPoints as any)[p] ?? 0);
+
+      points[display] = pts;
+
+      if (pts > maxPts) {
+        maxPts = pts;
+        winner = display;
+      }
+    }
+
+    const view: MatchView = {
+      game: gameName,
+      gameId,
+      players: participants.map(p => playerNameById.get(p) || p),
+      points,
+      winner,
+    };
+
+    if (!sessions.has(date)) sessions.set(date, []);
+    sessions.get(date)!.push(view);
+  }
+
+  // Ordenamos fechas
+  return Array.from(sessions.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, matches]) => ({
+      date,
+      matches,
+    }));
 }

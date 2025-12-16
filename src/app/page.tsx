@@ -1,9 +1,12 @@
+// src/app/page.tsx
+import Link from "next/link";
 import { loadGames, loadMatches, loadPlayers, loadSchedule } from "@/lib/sheets";
 import { computeLeaderboard } from "@/lib/league";
+
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default async function Home() {
+export default async function HomePage() {
   const [players, games, matches, schedule] = await Promise.all([
     loadPlayers(),
     loadGames(),
@@ -11,67 +14,76 @@ export default async function Home() {
     loadSchedule(),
   ]);
 
-  const { eligible, all, minMatches } = computeLeaderboard(players, games, matches, 10);
+  const leaderboard = computeLeaderboard({
+    players,
+    games,
+    matches,
+  });
 
-  const sortedSchedule = [...schedule].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedSchedule = [...schedule].sort((a, b) =>
+    a.date.localeCompare(b.date)
+  );
   const nextDate = sortedSchedule[0];
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Liga de Juegos de Mesa</h1>
+    <main style={{ maxWidth: 900, margin: "0 auto", padding: "32px 16px" }}>
+      <h1 style={{ fontSize: 36, fontWeight: 800, marginBottom: 8 }}>
+        Torneo de Juegos de Mesa
+      </h1>
 
-      <section style={{ marginTop: 24 }}>
-        <h2>Próxima fecha</h2>
+      <p style={{ opacity: 0.75, marginBottom: 24 }}>
+        Ranking general, próximas jornadas y partidas registradas.
+      </p>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 24, marginBottom: 12 }}>🏆 Ranking</h2>
+
+        {leaderboard.length === 0 && <p>No hay partidas cargadas.</p>}
+
+        {leaderboard.length > 0 && (
+          <ol>
+            {leaderboard.slice(0, 5).map((p, idx) => (
+              <li key={p.player_id}>
+                <b>
+                  #{idx + 1} {p.player_name}
+                </b>{" "}
+                — {p.points} pts ({p.games} partidas, {p.wins} wins)
+              </li>
+            ))}
+          </ol>
+        )}
+
+        <Link href="/ranking">Ver ranking completo →</Link>
+      </section>
+
+      <section style={{ marginBottom: 32 }}>
+        <h2 style={{ fontSize: 24, marginBottom: 12 }}>📅 Próxima jornada</h2>
+
         {nextDate ? (
-          <p>
-            <b>{nextDate.date}</b> {nextDate.start_time}–{nextDate.end_time} · {nextDate.location}
-            {nextDate.notes ? ` · ${nextDate.notes}` : ""}
-          </p>
+          <div>
+            <b>{nextDate.date}</b>
+            {nextDate.location && <> — {nextDate.location}</>}
+          </div>
         ) : (
-          <p>No hay fechas cargadas.</p>
+          <p>No hay fechas programadas.</p>
         )}
+
+        <Link href="/calendario">Ver calendario →</Link>
       </section>
 
-      <section style={{ marginTop: 24 }}>
-        <h2>Ranking (mínimo {minMatches} partidas)</h2>
-        {eligible.length === 0 ? (
-          <p>
-            Todavía nadie llegó al mínimo. (Hay {all.length} jugadores cargados.)
-          </p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>#</th>
-                <th style={{ textAlign: "left", borderBottom: "1px solid #ddd", padding: 8 }}>Jugador</th>
-                <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Rating</th>
-                <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Puntos</th>
-                <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Partidas</th>
-                <th style={{ textAlign: "right", borderBottom: "1px solid #ddd", padding: 8 }}>Victorias pesadas</th>
-              </tr>
-            </thead>
-            <tbody>
-              {eligible.map((p, i) => (
-                <tr key={p.player_id}>
-                  <td style={{ padding: 8 }}>{i + 1}</td>
-                  <td style={{ padding: 8 }}>{p.name}</td>
-                  <td style={{ padding: 8, textAlign: "right" }}>{p.rating.toFixed(2)}</td>
-                  <td style={{ padding: 8, textAlign: "right" }}>{p.points.toFixed(2)}</td>
-                  <td style={{ padding: 8, textAlign: "right" }}>{p.matches}</td>
-                  <td style={{ padding: 8, textAlign: "right" }}>{p.heavyWins}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
-
-      <section style={{ marginTop: 24, opacity: 0.75 }}>
-        <h3>Debug rápido (para vos)</h3>
-        <p>
-          Players: {players.length} · Games: {games.length} · Matches: {matches.length} · Schedule:{" "}
-          {schedule.length}
-        </p>
+      <section>
+        <h2 style={{ fontSize: 24, marginBottom: 12 }}>🎲 Navegación</h2>
+        <ul>
+          <li>
+            <Link href="/juegos">Juegos</Link>
+          </li>
+          <li>
+            <Link href="/jornadas">Jornadas</Link>
+          </li>
+          <li>
+            <Link href="/ranking">Ranking</Link>
+          </li>
+        </ul>
       </section>
     </main>
   );
