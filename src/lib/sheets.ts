@@ -1,9 +1,40 @@
 import { parseCsv } from "./csv";
 
-async function fetchCsv(envName: string): Promise<any[]> {
+export type Player = {
+  id: string;
+  name: string;
+};
+
+export type Game = {
+  id: string;
+  name: string;
+  weight?: string;
+  image_url?: string;
+};
+
+export type ScheduleRow = {
+  date: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
+  notes?: string;
+};
+
+export type MatchRow = {
+  session_date: string;
+  game_id: string;
+  start_time?: string;
+  p1?: string;
+  p2?: string;
+  p3?: string;
+  p4?: string;
+  p5?: string;
+};
+
+async function fetchCsv(envName: string): Promise<Record<string, string>[]> {
   const url = process.env[envName];
 
-  // 🔒 Guardrail absoluto
+  // Guardrail absoluto: nunca rompe runtime
   if (!url || typeof url !== "string") {
     console.error(`❌ Missing env var: ${envName}`);
     return [];
@@ -25,18 +56,18 @@ async function fetchCsv(envName: string): Promise<any[]> {
   }
 }
 
-export async function loadPlayers() {
-  return fetchCsv("SHEETS_PLAYERS_CSV_URL");
+export async function loadPlayers(): Promise<Player[]> {
+  return (await fetchCsv("SHEETS_PLAYERS_CSV_URL")) as unknown as Player[];
 }
 
-export async function loadGames() {
-  return fetchCsv("SHEETS_GAMES_CSV_URL");
+export async function loadGames(): Promise<Game[]> {
+  return (await fetchCsv("SHEETS_GAMES_CSV_URL")) as unknown as Game[];
 }
 
-export async function loadSchedule() {
-  return fetchCsv("SHEETS_SCHEDULE_CSV_URL");
+export async function loadSchedule(): Promise<ScheduleRow[]> {
+  return (await fetchCsv("SHEETS_SCHEDULE_CSV_URL")) as unknown as ScheduleRow[];
 }
 
-export async function loadMatches() {
-  return fetchCsv("SHEETS_MATCHES_CSV_URL");
+export async function loadMatches(): Promise<MatchRow[]> {
+  return (await fetchCsv("SHEETS_MATCHES_CSV_URL")) as unknown as MatchRow[];
 }
