@@ -4,107 +4,90 @@ import type { Game, MatchRow, Player } from "./sheets";
 
 export type PlayerStats = {
   player_id: string;
-  player_name: string;
-  points: number;
-  games: number;
+  name: string;
+  matches: number;
   wins: number;
+  points: number;
 };
 
-function safeStr(v: unknown): string {
+function s(v: unknown): string {
   return v === null || v === undefined ? "" : String(v).trim();
 }
-
-function toNumber(v: unknown): number {
-  const num = Number(v);
-  return Number.isFinite(num) ? num : 0;
+function num(v: unknown, fallback = 0): number {
+  const x = Number(v);
+  return Number.isFinite(x) ? x : fallback;
 }
 
-function resolvePlayerId(nameOrId: string): string {
-  return safeStr(nameOrId);
-}
+export function computeLeaderboard(
+  players: Player[],
+  games: Game[],
+  matches: MatchRow[],
+  minMatches = 10
+) {
+  const playerName = new Map(players.map((p) => [p.id, p.name || p.id]));
+  const gameById = new Map(games.map((g) => [g.game_id, g]));
 
-/**
- * computeLeaderboard: PlayerStats[] ordenado por puntos/wins/games.
- *
- * Firma real de calcMatchPoints:
- *   calcMatchPoints(players: string[], gameId: number)
- */
-export function computeLeaderboard(args: {
-  players: Player[];
-  games: Game[];
-  matches: MatchRow[];
-}): PlayerStats[] {
-  const { players, matches } = args;
-
-  // Map id->name (si existe)
-  const playerNameById = new Map<string, string>();
+  const statsById = new Map<string, PlayerStats>();
   for (const p of players) {
-    const id = safeStr((p as any).id);
-    const name = safeStr((p as any).name);
-    if (id) playerNameById.set(id, name || id);
+    statsById.set(p.id, {
+      player_id: p.id,
+      name: p.name || p.id,
+      matches: 0,
+      wins: 0,
+      points: 0,
+    });
   }
-
-  const stats = new Map<string, PlayerStats>();
 
   for (const m of matches) {
-    const participants = [m.p1, m.p2, m.p3, m.p4, m.p5]
-      .map((x) => safeStr(x))
-      .filter(Boolean);
-
+    const participants = [m.p1, m.p2, m.p3, m.p4, m.p5].map(s).filter(Boolean);
     if (participants.length === 0) continue;
 
-    // 👇 game_id viene de CSV como string, pero scoring espera number
-    const gameIdNum = toNumber(m.game_id);
+    const g = gameById.get(s(m.game_id));
+    const multiplier = g?.multiplier ?? 1;
 
-    const pointsRaw = calcMatchPoints(participants, gameIdNum);
+    // calcMatchPoints espera: (orderedPlayerIds, multiplier)
+    const raw = calcMatchPoints(participants, multiplier) as Record<string, number>;
 
-    // Normalizamos a Record<string, number>
-    const pointsByPlayer: Record<string, number> = {};
+    // winner = max points
+    let winnerId: string | null = null;
+    let best = -Infinity;
 
-    if (pointsRaw instanceof Map) {
-      for (const [k, v] of pointsRaw.entries()) pointsByPlayer[String(k)] = toNumber(v);
-    } else if (typeof pointsRaw === "object" && pointsRaw !== null) {
-      for (const [k, v] of Object.entries(pointsRaw as any)) pointsByPlayer[String(k)] = toNumber(v);
-    } else {
-      for (const name of participants) pointsByPlayer[name] = 0;
-    }
-
-    // Ganador(es) = max puntos entre participantes
-    let maxPts = -Infinity;
-    for (const name of participants) {
-      const pid = resolvePlayerId(name);
-      const pts = toNumber(pointsByPlayer[pid] ?? pointsByPlayer[name] ?? 0);
-      if (pts > maxPts) maxPts = pts;
-    }
-
-    for (const name of participants) {
-      const pid = resolvePlayerId(name);
-      const displayName = playerNameById.get(pid) || name || pid;
-
-      const pts = toNumber(pointsByPlayer[pid] ?? pointsByPlayer[name] ?? 0);
-
-      const prev =
-        stats.get(pid) ??
-        ({
+    for (const pid of participants) {
+      if (!statsById.has(pid)) {
+        statsById.set(pid, {
           player_id: pid,
-          player_name: displayName,
-          points: 0,
-          games: 0,
+          name: playerName.get(pid) || pid,
+          matches: 0,
           wins: 0,
-        } as PlayerStats);
+          points: 0,
+        });
+      }
 
-      prev.points += pts;
-      prev.games += 1;
-      if (pts === maxPts) prev.wins += 1;
-      prev.player_name = displayName;
+      const st = statsById.get(pid)!;
+      st.matches += 1;
 
-      stats.set(pid, prev);
+      const pts = num(raw[pid], 0);
+      st.points += pts;
+
+      if (pts > best) {
+        best = pts;
+        winnerId = pid;
+      }
+    }
+
+    if (winnerId) {
+      const st = statsById.get(winnerId);
+      if (st) st.wins += 1;
     }
   }
 
-  return Array.from(stats.values()).sort((a, b) => {
+  const all = Array.from(statsById.values()).sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
     if (b.wins !== a.wins) return b.wins - a.wins;
-    return b.games - a.games;
+    return b.matches - a.matches;
   });
+
+  const eligible = all.filter((x) => x.matches >= minMatches);
+
+  return { eligible, all, minMatches };
 }

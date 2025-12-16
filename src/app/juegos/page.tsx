@@ -1,18 +1,28 @@
-import { loadGames } from "@/lib/sheets";
+import Link from "next/link";
+import { loadGames, loadMatches, loadPlayers } from "@/lib/sheets";
 import GamesClient from "./ui";
+
 export const dynamic = "force-dynamic";
+export const revalidate = 0;
 
 export default async function JuegosPage() {
-  const games = await loadGames();
+  const [games, matches, players] = await Promise.all([
+    loadGames(),
+    loadMatches(),
+    loadPlayers(),
+  ]);
 
   return (
-    <main style={{ maxWidth: 1000, margin: "0 auto", padding: 16, fontFamily: "system-ui" }}>
-      <h1>Juegos</h1>
-      <p style={{ opacity: 0.8 }}>
-        Catálogo de juegos disponibles. Las imágenes salen de la columna <b>image_url</b> en Google Sheets.
-      </p>
+    <main style={{ maxWidth: 1100, margin: "0 auto", padding: "0 16px" }}>
+      <nav style={{ marginBottom: 12 }}>
+        <Link href="/">← Volver al inicio</Link>
+      </nav>
 
-      <GamesClient initialGames={games} />
+      <GamesClient
+        games={games}
+        matches={matches}
+        players={players}
+      />
     </main>
   );
 }
