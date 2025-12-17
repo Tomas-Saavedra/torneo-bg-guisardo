@@ -1,9 +1,9 @@
 // src/lib/league.ts
-import type { Game, Match, Player } from "./sheets";
-import { pointsForPlace } from "./scoring";
+import type { Game, MatchRow, Player } from "./sheets";
+import { calcMatchPoints, getPlacementsFromMatch } from "./scoring";
 
 export type PlayerStats = {
-  player_id: string;
+  id: string;
   name: string;
 
   matches: number;
@@ -24,43 +24,15 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-export function getGameMultiplier(game?: Game): number {
-  const m = Number(game?.multiplier ?? 1);
+function gameMultiplier(g?: Game): number {
+  const m = Number(g?.multiplier ?? 1);
   return Number.isFinite(m) && m > 0 ? m : 1;
-}
-
-/** p1..p5 en orden (p1=ganador) */
-export function getMatchPlacements(match: Match): string[] {
-  const raw = [match.p1, match.p2, match.p3, match.p4, match.p5]
-    .map((x) => String(x ?? "").trim())
-    .filter(Boolean);
-
-  const seen = new Set<string>();
-  const unique: string[] = [];
-  for (const p of raw) {
-    if (!seen.has(p)) {
-      seen.add(p);
-      unique.push(p);
-    }
-  }
-  return unique;
-}
-
-export function computeMatchPoints(match: Match, game?: Game): Map<string, number> {
-  const mult = getGameMultiplier(game);
-  const placements = getMatchPlacements(match);
-
-  const out = new Map<string, number>();
-  for (let i = 0; i < placements.length; i++) {
-    out.set(placements[i], pointsForPlace(i, mult));
-  }
-  return out;
 }
 
 export function computeLeaderboard(args: {
   players: Player[];
   games: Game[];
-  matches: Match[];
+  matches: MatchRow[];
   minMatches?: number;
 }): LeaderboardResult {
   const { players, games, matches } = args;
@@ -69,18 +41,15 @@ export function computeLeaderboard(args: {
   const gameById = new Map<string, Game>();
   for (const g of games) gameById.set(String(g.game_id).trim(), g);
 
-  const playerNameById = new Map<string, string>();
-  for (const p of players) {
-    const id = String(p.id).trim();
-    playerNameById.set(id, String(p.name ?? p.id).trim());
-  }
+  const statsById = new Map<string, PlayerStats>();
 
-  const statsByPlayer = new Map<string, PlayerStats>();
+  // init con players
   for (const p of players) {
     const id = String(p.id).trim();
-    statsByPlayer.set(id, {
-      player_id: id,
-      name: playerNameById.get(id) ?? id,
+    if (!id) continue;
+    statsById.set(id, {
+      id,
+      name: String(p.name ?? id).trim(),
       matches: 0,
       wins: 0,
       podiums: 0,
@@ -89,22 +58,24 @@ export function computeLeaderboard(args: {
     });
   }
 
+  // acumular desde matches (si aparece alguien que no está en Players, lo agregamos)
   for (const m of matches) {
-    const gameId = String(m.game_id ?? "").trim();
-    const game = gameById.get(gameId);
+    const gid = String(m.game_id ?? "").trim();
+    const g = gameById.get(gid);
+    const mult = gameMultiplier(g);
 
-    const placements = getMatchPlacements(m);
+    const placements = getPlacementsFromMatch(m);
     if (placements.length === 0) continue;
 
-    const ptsMap = computeMatchPoints(m, game);
+    const ptsByName = calcMatchPoints(placements, mult);
 
     for (let i = 0; i < placements.length; i++) {
-      const pid = placements[i];
+      const nameOrId = placements[i];
 
-      if (!statsByPlayer.has(pid)) {
-        statsByPlayer.set(pid, {
-          player_id: pid,
-          name: playerNameById.get(pid) ?? pid,
+      if (!statsById.has(nameOrId)) {
+        statsById.set(nameOrId, {
+          id: nameOrId,
+          name: nameOrId,
           matches: 0,
           wins: 0,
           podiums: 0,
@@ -113,19 +84,19 @@ export function computeLeaderboard(args: {
         });
       }
 
-      const st = statsByPlayer.get(pid)!;
+      const st = statsById.get(nameOrId)!;
       st.matches += 1;
       if (i === 0) st.wins += 1;
       if (i <= 2) st.podiums += 1;
 
-      st.points = round2(st.points + (ptsMap.get(pid) ?? 0));
+      st.points = round2(st.points + (ptsByName[nameOrId] ?? 0));
     }
   }
 
-  const all: PlayerStats[] = Array.from(statsByPlayer.values()).map((s) => {
-    const avg = s.matches > 0 ? s.points / s.matches : 0;
-    return { ...s, avgPoints: round2(avg) };
-  });
+  const all = Array.from(statsById.values()).map((s) => ({
+    ...s,
+    avgPoints: s.matches > 0 ? round2(s.points / s.matches) : 0,
+  }));
 
   all.sort((a, b) => {
     if (b.points !== a.points) return b.points - a.points;
@@ -135,5 +106,6 @@ export function computeLeaderboard(args: {
   });
 
   const eligible = all.filter((p) => p.matches >= minMatches);
+
   return { eligible, all, minMatches };
 }

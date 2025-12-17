@@ -1,83 +1,73 @@
 // src/lib/sessions.ts
-import type { Game, Match, ScheduleRow } from "./sheets";
-import { calcMatchPoints } from "./scoring";
+import type { Game, MatchRow, ScheduleRow } from "./sheets";
+import { calcMatchPoints, getPlacementsFromMatch } from "./scoring";
 
-export type SessionView = {
-  session_date: string; // YYYY-MM-DD
-  start_time: string; // HH:MM
+export type SessionMatchView = {
+  id: string;
+  session_date: string;
+  start_time?: string;
+
   game_id: string;
-  gameName: string;
-
-  placements: string[]; // en orden (ganador -> ...)
-  pointsByPlayer: Record<string, number>; // ya con multiplicador aplicado
+  game_name: string;
   multiplier: number;
+
+  placements: string[]; // en orden (ganador, 2do, etc)
+  pointsByPlayer: Record<string, number>;
 };
 
-export function safeStr(v: unknown): string {
-  return String(v ?? "").trim();
+function normDate(d: string): string {
+  return String(d ?? "").trim();
 }
 
-export function normalizeDate(v: unknown): string {
-  const s = safeStr(v);
-  // dejamos YYYY-MM-DD tal cual; si viene con hora, cortamos.
-  if (s.includes("T")) return s.split("T")[0]!;
-  if (s.includes(" ")) return s.split(" ")[0]!;
-  return s;
+function toNum(v: unknown, fallback = 1): number {
+  const n = Number(String(v ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
-export function getPlacements(match: Match): string[] {
-  const raw = [match.p1, match.p2, match.p3, match.p4, match.p5]
-    .map((x) => safeStr(x))
-    .filter(Boolean);
+export function buildMatchesForDate(args: {
+  date: string;
+  matches: MatchRow[];
+  games: Game[];
+}): SessionMatchView[] {
+  const date = normDate(args.date);
+  const { matches, games } = args;
 
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const p of raw) {
-    if (!seen.has(p)) {
-      seen.add(p);
-      out.push(p);
-    }
-  }
-  return out;
-}
-
-export function gameMultiplier(game?: Game): number {
-  const m = Number(game?.multiplier ?? 1);
-  return Number.isFinite(m) && m > 0 ? m : 1;
-}
-
-export function buildSessions(games: Game[], matches: Match[]): SessionView[] {
   const gameById = new Map<string, Game>();
-  for (const g of games) gameById.set(safeStr(g.game_id), g);
+  for (const g of games) gameById.set(String(g.game_id).trim(), g);
 
-  return matches.map((m) => {
-    const gid = safeStr(m.game_id);
+  const filtered = matches.filter((m) => normDate(m.session_date) === date);
+
+  const out: SessionMatchView[] = filtered.map((m, idx) => {
+    const gid = String(m.game_id ?? "").trim();
     const g = gameById.get(gid);
 
-    const mult = gameMultiplier(g);
-    const placements = getPlacements(m);
+    const game_name = String(g?.name ?? gid).trim();
+    const mult = toNum(g?.multiplier, 1);
+
+    const placements = getPlacementsFromMatch(m);
     const pointsByPlayer = calcMatchPoints(placements, mult);
 
     return {
-      session_date: normalizeDate(m.session_date),
-      start_time: safeStr(m.start_time),
+      id: `${date}-${gid}-${m.start_time ?? ""}-${idx}`,
+      session_date: date,
+      start_time: m.start_time,
+
       game_id: gid,
-      gameName: safeStr(g?.name ?? gid),
+      game_name,
+      multiplier: mult,
+
       placements,
       pointsByPlayer,
-      multiplier: mult,
     };
   });
+
+  // ordenar por start_time si existe
+  out.sort((a, b) => String(a.start_time ?? "").localeCompare(String(b.start_time ?? "")));
+
+  return out;
 }
 
-export function sessionsForDate(date: string, games: Game[], matches: Match[]): SessionView[] {
-  const d = normalizeDate(date);
-  return buildSessions(games, matches)
-    .filter((s) => s.session_date === d)
-    .sort((a, b) => a.start_time.localeCompare(b.start_time));
-}
-
-export function scheduleForDate(date: string, schedule: ScheduleRow[]): ScheduleRow | undefined {
-  const d = normalizeDate(date);
-  return schedule.find((s) => normalizeDate(s.date) === d);
+export function findScheduleForDate(schedule: ScheduleRow[], date: string): ScheduleRow | undefined {
+  const d = normDate(date);
+  return schedule.find((s) => normDate(s.date) === d);
 }

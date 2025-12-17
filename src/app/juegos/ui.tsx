@@ -1,177 +1,199 @@
+// src/app/juegos/ui.tsx
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Game, MatchRow, Player } from "@/lib/sheets";
 
-type Props = {
-  games: Game[];
-  matches: MatchRow[];
-  players: Player[];
+type GameLike = {
+  game_id: string;
+  name: string;
+  type?: string; // heavy | medium | filler
+  multiplier?: number;
+  image_url?: string;
 };
 
-function safe(v?: string) {
-  return (v ?? "").trim();
+type MatchLike = {
+  game_id?: string;
+};
+
+type Props = {
+  games: GameLike[];
+  matches: MatchLike[];
+};
+
+function toNum(v: unknown, fallback = 0): number {
+  const n = typeof v === "number" ? v : Number(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : fallback;
 }
 
-export default function JuegosClient({ games, matches, players }: Props) {
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState<string>("all");
+function normStr(v: unknown): string {
+  return String(v ?? "").trim();
+}
 
-  const playerNameById = useMemo(() => {
-    const m = new Map<string, string>();
-    for (const p of players) {
-      m.set(p.id.toLowerCase(), p.name.toLowerCase());
-      m.set(p.name.toLowerCase(), p.name.toLowerCase());
+export default function JuegosUI({ games, matches }: Props) {
+  const [q, setQ] = useState("");
+  const [typeFilter, setTypeFilter] = useState<string>("all");
+  const [sortBy, setSortBy] = useState<"name" | "plays">("plays");
+
+  const { rows, availableTypes } = useMemo(() => {
+    const playsByGame: Record<string, number> = {};
+
+    for (const m of matches) {
+      const gid = normStr(m.game_id);
+      if (!gid) continue;
+      playsByGame[gid] = (playsByGame[gid] ?? 0) + 1;
     }
-    return m;
-  }, [players]);
+
+    const types = new Set<string>();
+    for (const g of games) {
+      if (g.type) types.add(g.type);
+    }
+
+    const out = games.map((g) => {
+      const gid = normStr(g.game_id);
+      return {
+        game_id: gid,
+        name: normStr(g.name),
+        type: normStr(g.type),
+        multiplier: toNum(g.multiplier, 1) || 1,
+        image_url: normStr((g as any).image_url),
+        plays: playsByGame[gid] ?? 0,
+      };
+    });
+
+    return { rows: out, availableTypes: Array.from(types).sort() };
+  }, [games, matches]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const qq = q.trim().toLowerCase();
 
-    // Si el usuario escribe un nombre, lo buscamos en players y después matcheamos partidos.
-    const qPlayerIds = new Set<string>();
-    if (q) {
-      for (const p of players) {
-        const id = p.id.toLowerCase();
-        const name = p.name.toLowerCase();
-        if (id.includes(q) || name.includes(q)) qPlayerIds.add(p.id);
+    let out = rows.filter((g) => {
+      if (typeFilter !== "all" && (g.type || "") !== typeFilter) return false;
+      if (!qq) return true;
+      return (
+        g.name.toLowerCase().includes(qq) ||
+        g.game_id.toLowerCase().includes(qq) ||
+        (g.type || "").toLowerCase().includes(qq)
+      );
+    });
+
+    out.sort((a, b) => {
+      if (sortBy === "plays") {
+        return b.plays - a.plays || a.name.localeCompare(b.name);
       }
-    }
+      return a.name.localeCompare(b.name);
+    });
 
-    // Map game_id -> lista de jugadores (ids) que aparecen en partidas de ese juego
-    const gamePlayers = new Map<string, Set<string>>();
-    for (const m of matches) {
-      const gid = safe(m.game_id);
-      if (!gid) continue;
-
-      const set = gamePlayers.get(gid) ?? new Set<string>();
-      for (const pid of [m.p1, m.p2, m.p3, m.p4, m.p5]) {
-        const v = safe(pid);
-        if (v) set.add(v);
-      }
-      gamePlayers.set(gid, set);
-    }
-
-    return games
-      .filter((g) => (type === "all" ? true : safe(g.type).toLowerCase() === type))
-      .filter((g) => {
-        if (!q) return true;
-
-        const nameOk = g.name.toLowerCase().includes(q) || g.game_id.toLowerCase().includes(q);
-
-        // Buscar por fecha/sesión no aplica acá porque son datos de matches; lo dejamos por jugadores y texto.
-        if (nameOk) return true;
-
-        // Si q coincide con algún jugador, ver si ese jugador jugó este juego alguna vez
-        if (qPlayerIds.size > 0) {
-          const set = gamePlayers.get(g.game_id);
-          if (!set) return false;
-          for (const pid of qPlayerIds) if (set.has(pid)) return true;
-          return false;
-        }
-
-        // Si no coincide con nombre/juego ni con jugador conocido, no matchea
-        return false;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [games, matches, players, query, type]);
-
-  const types = useMemo(() => {
-    const set = new Set<string>();
-    for (const g of games) {
-      const t = safe(g.type).toLowerCase();
-      if (t) set.add(t);
-    }
-    return ["all", ...Array.from(set).sort()];
-  }, [games]);
+    return out;
+  }, [rows, q, typeFilter, sortBy]);
 
   return (
-    <div style={{ maxWidth: 1000, margin: "0 auto" }}>
-      <h1>Juegos</h1>
-      <p style={{ marginTop: 6, opacity: 0.8 }}>
-        Catálogo de juegos disponibles. Las imágenes salen de la columna <b>image_url</b> en Google Sheets.
-      </p>
-
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 16 }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
+      {/* Filtros */}
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Buscar (ej: catan, brass, saave, pedro...)"
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Buscar juego..."
           style={{
-            flex: 1,
-            padding: "10px 12px",
-            border: "1px solid #ddd",
-            borderRadius: 8,
+            flex: "1 1 260px",
+            height: 38,
+            padding: "0 12px",
+            border: "1px solid #e6e6e6",
+            borderRadius: 10,
           }}
         />
 
         <select
-          value={type}
-          onChange={(e) => setType(e.target.value)}
-          style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 8 }}
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          style={{
+            height: 38,
+            padding: "0 10px",
+            border: "1px solid #e6e6e6",
+            borderRadius: 10,
+            background: "white",
+          }}
         >
-          {types.map((t) => (
+          <option value="all">Todos</option>
+          {availableTypes.map((t) => (
             <option key={t} value={t}>
-              {t === "all" ? "Todos" : t}
+              {t}
             </option>
           ))}
         </select>
 
-        <span style={{ opacity: 0.7 }}>{filtered.length} juegos</span>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as any)}
+          style={{
+            height: 38,
+            padding: "0 10px",
+            border: "1px solid #e6e6e6",
+            borderRadius: 10,
+            background: "white",
+          }}
+        >
+          <option value="plays">Orden: partidas</option>
+          <option value="name">Orden: nombre</option>
+        </select>
       </div>
 
-      <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(230px, 1fr))", gap: 14 }}>
+      {/* Grid */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
+          gap: 14,
+        }}
+      >
         {filtered.map((g) => (
           <div
             key={g.game_id}
             style={{
               border: "1px solid #eee",
-              borderRadius: 12,
-              padding: 12,
+              borderRadius: 14,
+              padding: 14,
               background: "white",
             }}
           >
-            {g.image_url ? (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={g.image_url}
-                alt={g.name}
-                style={{
-                  width: "100%",
-                  height: 140,
-                  objectFit: "cover",
-                  borderRadius: 10,
-                  border: "1px solid #f1f1f1",
-                }}
-              />
-            ) : (
+            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
               <div
                 style={{
-                  width: "100%",
-                  height: 140,
-                  borderRadius: 10,
-                  border: "1px dashed #ddd",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  opacity: 0.7,
+                  width: 64,
+                  height: 64,
+                  borderRadius: 12,
+                  background: "#f6f6f6",
+                  overflow: "hidden",
+                  border: "1px solid #f0f0f0",
+                  flex: "0 0 auto",
                 }}
               >
-                Sin imagen
+                {g.image_url ? (
+                  <img
+                    src={g.image_url}
+                    alt={g.name}
+                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                ) : null}
               </div>
-            )}
 
-            <div style={{ marginTop: 10 }}>
-              <div style={{ fontWeight: 700 }}>{g.name}</div>
-              <div style={{ fontSize: 13, opacity: 0.75, marginTop: 2 }}>
-                id: {g.game_id}
-                {g.type ? ` • ${g.type}` : ""}
-              </div>
-              <div style={{ fontSize: 13, opacity: 0.75, marginTop: 2 }}>
-                x{g.multiplier}
-                {typeof g.min_p === "number" ? ` • min ${g.min_p}` : ""}
-                {typeof g.max_p === "number" ? ` • max ${g.max_p}` : ""}
+              <div style={{ minWidth: 0 }}>
+                <div
+                  style={{
+                    fontWeight: 700,
+                    fontSize: 16,
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {g.name}
+                </div>
+                <div style={{ opacity: 0.75, fontSize: 13 }}>
+                  {g.type || "—"} • x{g.multiplier} • {g.plays} partidas
+                </div>
               </div>
             </div>
           </div>
@@ -179,9 +201,9 @@ export default function JuegosClient({ games, matches, players }: Props) {
       </div>
 
       {filtered.length === 0 && (
-        <p style={{ marginTop: 18, fontStyle: "italic", opacity: 0.75 }}>
-          No hay juegos para mostrar (revisá filtros o el Sheet).
-        </p>
+        <div style={{ opacity: 0.7, marginTop: 16 }}>
+          No hay juegos que coincidan.
+        </div>
       )}
     </div>
   );

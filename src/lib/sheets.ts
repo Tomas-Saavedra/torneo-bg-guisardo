@@ -1,195 +1,182 @@
 // src/lib/sheets.ts
+// Carga data desde Google Sheets publicados como CSV (por URL en env vars)
 
-import { parseCsv } from "./csv";
-
-function s(v: unknown): string {
-  return v === null || v === undefined ? "" : String(v).trim();
-}
-
-function n(v: unknown, fallback = 0): number {
-  const raw = s(v);
-  if (!raw) return fallback;
-  const num = Number(raw.replace(",", "."));
-  return Number.isFinite(num) ? num : fallback;
-}
-
-function normalizeDate(v: unknown): string {
-  const raw = s(v);
-  if (!raw) return "";
-
-  // ISO (YYYY-MM-DD) o ISO datetime
-  const iso = raw.match(/^(\d{4})-(\d{2})-(\d{2})/);
-  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
-
-  // DD/MM/YYYY o DD-MM-YYYY
-  const dmy = raw.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{4})$/);
-  if (dmy) {
-    const dd = String(dmy[1]).padStart(2, "0");
-    const mm = String(dmy[2]).padStart(2, "0");
-    const yyyy = dmy[3];
-    return `${yyyy}-${mm}-${dd}`;
-  }
-
-  // fallback: devolvemos lo que haya (mejor que romper)
-  return raw;
-}
-
-async function fetchCsvRows(url: string): Promise<Record<string, string>[]> {
-  const u = s(url);
-  if (!u) return [];
-  const res = await fetch(u, { cache: "no-store" });
-  if (!res.ok) return [];
-  const text = await res.text();
-  const rows = parseCsv(text) as Record<string, unknown>[];
-  return (rows ?? []).map((r) => {
-    const out: Record<string, string> = {};
-    for (const [k, v] of Object.entries(r ?? {})) out[String(k).trim()] = s(v);
-    return out;
-  });
-}
-
-export type PlayerRow = {
-  player_id: string;
+export type Player = {
+  id: string;
   name: string;
 };
 
-export type GameRow = {
+export type Game = {
   game_id: string;
   name: string;
-  type: string; // "heavy" | "medium" | "filler" | ...
-  multiplier: number; // 2 | 1.5 | 1 ...
-  image?: string;
+  type?: string;
+  multiplier?: number;
+  min_p?: number;
+  max_p?: number;
+  image_url?: string;
 };
 
 export type ScheduleRow = {
   date: string; // YYYY-MM-DD
-  label?: string;
+  start_time?: string;
+  end_time?: string;
+  location?: string;
   notes?: string;
 };
 
 export type MatchRow = {
   session_date: string; // YYYY-MM-DD
   game_id: string;
-
+  start_time?: string;
   p1?: string;
   p2?: string;
   p3?: string;
   p4?: string;
   p5?: string;
-
-  notes?: string;
 };
 
-function env(name: string): string {
-  return s(process.env[name]);
-}
+// ---- CSV helpers ----
 
-export async function loadPlayers(): Promise<PlayerRow[]> {
-  const rows = await fetchCsvRows(env("SHEETS_PLAYERS_CSV_URL"));
+function parseCSV(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let inQuotes = false;
 
-  const out: PlayerRow[] = [];
-  for (const r of rows) {
-    const player_id = s(r.player_id || r.id || r.player || r.name);
-    const name = s(r.name || r.player_name || r.player || r.id || r.player_id);
-    if (!player_id) continue;
-    out.push({ player_id, name: name || player_id });
-  }
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
 
-  // de-dupe por player_id
-  const seen = new Set<string>();
-  return out.filter((p) => (seen.has(p.player_id) ? false : (seen.add(p.player_id), true)));
-}
-
-export async function loadGames(): Promise<GameRow[]> {
-  const rows = await fetchCsvRows(env("SHEETS_GAMES_CSV_URL"));
-
-  const out: GameRow[] = [];
-  for (const r of rows) {
-    const game_id = s(r.game_id || r.id);
-    const name = s(r.name || r.game || r.title);
-    if (!game_id || !name) continue;
-
-    const type = s(r.type || r.category || "").toLowerCase();
-    let multiplier = n(r.multiplier, 0);
-
-    if (!multiplier) {
-      // si no viene multiplier, inferimos por type
-      if (type === "heavy") multiplier = 2;
-      else if (type === "medium") multiplier = 1.5;
-      else if (type === "filler") multiplier = 1;
-      else multiplier = 1;
+    if (ch === '"') {
+      const next = text[i + 1];
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
     }
 
-    const image = s(r.image || r.img || r.image_url || "");
+    if (!inQuotes && (ch === "," || ch === "\n" || ch === "\r")) {
+      if (ch === "\r" && text[i + 1] === "\n") i++; // CRLF
+      row.push(cell);
+      cell = "";
 
-    out.push({
-      game_id,
-      name,
-      type: type || "filler",
-      multiplier,
-      ...(image ? { image } : {}),
-    });
+      if (ch === "\n" || ch === "\r") {
+        // cerrar fila (si no es una fila vacía)
+        const isEmpty = row.every((c) => (c ?? "").trim() === "");
+        if (!isEmpty) rows.push(row);
+        row = [];
+      }
+      continue;
+    }
+
+    cell += ch;
   }
 
-  // de-dupe por game_id
-  const seen = new Set<string>();
-  return out.filter((g) => (seen.has(g.game_id) ? false : (seen.add(g.game_id), true)));
+  // último campo/fila
+  row.push(cell);
+  const isEmpty = row.every((c) => (c ?? "").trim() === "");
+  if (!isEmpty) rows.push(row);
+
+  return rows;
+}
+
+function rowsToObjects(rows: string[][]): Record<string, string>[] {
+  if (rows.length === 0) return [];
+  const headers = rows[0].map((h) => String(h ?? "").trim());
+  const out: Record<string, string>[] = [];
+
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    const obj: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      const key = headers[j];
+      if (!key) continue;
+      obj[key] = String(r[j] ?? "").trim();
+    }
+    out.push(obj);
+  }
+  return out;
+}
+
+async function fetchCsvObjects(url: string): Promise<Record<string, string>[]> {
+  const res = await fetch(url, { cache: "no-store" });
+  if (!res.ok) throw new Error(`CSV fetch failed (${res.status}) for ${url}`);
+  const text = await res.text();
+  const rows = parseCSV(text);
+  return rowsToObjects(rows);
+}
+
+function env(name: string): string | undefined {
+  const v = process.env[name];
+  return v && v.trim() ? v.trim() : undefined;
+}
+
+// ---- Public loaders ----
+
+export async function loadPlayers(): Promise<Player[]> {
+  const url = env("SHEETS_PLAYERS_CSV_URL");
+  if (!url) return [];
+  const objs = await fetchCsvObjects(url);
+
+  return objs
+    .map((o) => ({
+      id: String(o.player_id ?? o.id ?? "").trim(),
+      name: String(o.name ?? o.player_id ?? o.id ?? "").trim(),
+    }))
+    .filter((p) => p.id);
+}
+
+export async function loadGames(): Promise<Game[]> {
+  const url = env("SHEETS_GAMES_CSV_URL");
+  if (!url) return [];
+  const objs = await fetchCsvObjects(url);
+
+  return objs
+    .map((o) => ({
+      game_id: String(o.game_id ?? "").trim(),
+      name: String(o.name ?? o.game_id ?? "").trim(),
+      type: String(o.type ?? "").trim() || undefined,
+      multiplier: o.multiplier ? Number(String(o.multiplier).trim()) : undefined,
+      min_p: o.min_p ? Number(String(o.min_p).trim()) : undefined,
+      max_p: o.max_p ? Number(String(o.max_p).trim()) : undefined,
+      image_url: String(o.image_url ?? "").trim() || undefined,
+    }))
+    .filter((g) => g.game_id);
 }
 
 export async function loadSchedule(): Promise<ScheduleRow[]> {
-  const rows = await fetchCsvRows(env("SHEETS_SCHEDULE_CSV_URL"));
+  const url = env("SHEETS_SCHEDULE_CSV_URL");
+  if (!url) return [];
+  const objs = await fetchCsvObjects(url);
 
-  const out: ScheduleRow[] = [];
-  for (const r of rows) {
-    const date = normalizeDate(r.date || r.session_date || r.day);
-    if (!date) continue;
-
-    const label = s(r.label || r.title || "");
-    const notes = s(r.notes || r.note || "");
-
-    out.push({
-      date,
-      ...(label ? { label } : {}),
-      ...(notes ? { notes } : {}),
-    });
-  }
-
-  // orden por fecha
-  out.sort((a, b) => a.date.localeCompare(b.date));
-
-  // de-dupe por date
-  const seen = new Set<string>();
-  return out.filter((x) => (seen.has(x.date) ? false : (seen.add(x.date), true)));
+  return objs
+    .map((o) => ({
+      date: String(o.date ?? "").trim(),
+      start_time: String(o.start_time ?? "").trim() || undefined,
+      end_time: String(o.end_time ?? "").trim() || undefined,
+      location: String(o.location ?? "").trim() || undefined,
+      notes: String(o.notes ?? "").trim() || undefined,
+    }))
+    .filter((s) => s.date);
 }
 
 export async function loadMatches(): Promise<MatchRow[]> {
-  const rows = await fetchCsvRows(env("SHEETS_MATCHES_CSV_URL"));
+  const url = env("SHEETS_MATCHES_CSV_URL");
+  if (!url) return [];
+  const objs = await fetchCsvObjects(url);
 
-  const out: MatchRow[] = [];
-  for (const r of rows) {
-    const session_date = normalizeDate(r.session_date || r.date || r.day);
-    const game_id = s(r.game_id || r.game || r.gameId || r.id);
-
-    if (!session_date || !game_id) continue;
-
-    const p1 = s(r.p1 || r.winner || r.first);
-    const p2 = s(r.p2 || r.second);
-    const p3 = s(r.p3 || r.third);
-    const p4 = s(r.p4 || r.fourth);
-    const p5 = s(r.p5 || r.fifth);
-    const notes = s(r.notes || r.note || "");
-
-    out.push({
-      session_date,
-      game_id,
-      ...(p1 ? { p1 } : {}),
-      ...(p2 ? { p2 } : {}),
-      ...(p3 ? { p3 } : {}),
-      ...(p4 ? { p4 } : {}),
-      ...(p5 ? { p5 } : {}),
-      ...(notes ? { notes } : {}),
-    });
-  }
-
-  return out;
+  return objs
+    .map((o) => ({
+      session_date: String(o.session_date ?? o.date ?? "").trim(),
+      game_id: String(o.game_id ?? "").trim(),
+      start_time: String(o.start_time ?? "").trim() || undefined,
+      p1: String(o.p1 ?? "").trim() || undefined,
+      p2: String(o.p2 ?? "").trim() || undefined,
+      p3: String(o.p3 ?? "").trim() || undefined,
+      p4: String(o.p4 ?? "").trim() || undefined,
+      p5: String(o.p5 ?? "").trim() || undefined,
+    }))
+    .filter((m) => m.session_date && m.game_id);
 }

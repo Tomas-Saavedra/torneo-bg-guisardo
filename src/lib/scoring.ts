@@ -1,35 +1,54 @@
 // src/lib/scoring.ts
 
-export const BASE_POINTS_BY_PLACE = [5, 3, 1.5, 0.5, 0] as const;
+// Base “real” por puesto. Luego se multiplica por game.multiplier.
+// (heavy=2 => 20/12/6/2, medium=1.5 => 15/9/4.5/1.5, filler=1 => 10/6/3/1)
+const BASE_POINTS_BY_PLACE = [10, 6, 3, 1, 0] as const;
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
-}
-
-/**
- * participants: en orden de llegada (p1=ganador, p2=2do, etc.)
- * multiplier: del juego (ej: heavy=2, medium=1.5, filler=1)
- */
-export function calcMatchPoints(
-  participants: string[],
-  multiplier: number = 1
-): Record<string, number> {
-  const mult = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
-
-  const out: Record<string, number> = {};
-  for (let i = 0; i < participants.length; i++) {
-    const p = (participants[i] ?? "").trim();
-    if (!p) continue;
-
-    const base = BASE_POINTS_BY_PLACE[i] ?? 0;
-    const pts = round2(base * mult);
-    out[p] = (out[p] ?? 0) + pts;
-  }
-  return out;
-}
-
-export function pointsForPlace(placeIndex: number, multiplier: number = 1): number {
-  const mult = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+export function pointsForPlace(placeIndex: number, multiplier = 1): number {
   const base = BASE_POINTS_BY_PLACE[placeIndex] ?? 0;
-  return round2(base * mult);
+  const mult = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+
+  const raw = base * mult;
+
+  // redondeo “limpio” a 2 decimales por si hay 1.5 y similares
+  return Math.round(raw * 100) / 100;
+}
+
+export function getPlacementsFromMatch(match: {
+  p1?: string;
+  p2?: string;
+  p3?: string;
+  p4?: string;
+  p5?: string;
+}): string[] {
+  const raw = [match.p1, match.p2, match.p3, match.p4, match.p5]
+    .map((x) => String(x ?? "").trim())
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const p of raw) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      unique.push(p);
+    }
+  }
+  return unique;
+}
+
+export function calcMatchPoints(
+  participantsInOrder: string[],
+  multiplier = 1
+): Record<string, number> {
+  const out: Record<string, number> = {};
+
+  for (let i = 0; i < participantsInOrder.length; i++) {
+    const name = String(participantsInOrder[i] ?? "").trim();
+    if (!name) continue;
+
+    const pts = pointsForPlace(i, multiplier);
+    out[name] = (out[name] ?? 0) + pts;
+  }
+
+  return out;
 }
