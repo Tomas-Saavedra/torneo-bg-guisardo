@@ -1,93 +1,163 @@
 // src/lib/league.ts
+
 import { calcMatchPoints } from "./scoring";
-import type { Game, MatchRow, Player } from "./sheets";
+
+export type PlayerRow = {
+  player_id: string;
+  name?: string;
+};
+
+export type GameRow = {
+  game_id: string;
+  name?: string;
+  multiplier?: number | string;
+  type?: string;
+  min_p?: number | string;
+  max_p?: number | string;
+  image_url?: string;
+};
+
+export type MatchRow = {
+  session_date?: string;
+  game_id?: string;
+  start_time?: string;
+  p1?: string;
+  p2?: string;
+  p3?: string;
+  p4?: string;
+  p5?: string;
+};
 
 export type PlayerStats = {
   player_id: string;
   name: string;
+
   matches: number;
   wins: number;
+  podiums: number; // top 3
   points: number;
+
+  avgPoints: number;
 };
 
-function s(v: unknown): string {
-  return v === null || v === undefined ? "" : String(v).trim();
-}
-function num(v: unknown, fallback = 0): number {
-  const x = Number(v);
-  return Number.isFinite(x) ? x : fallback;
+export type LeaderboardResult = {
+  eligible: PlayerStats[];
+  all: PlayerStats[];
+  minMatches: number;
+};
+
+function toNum(v: unknown, fallback = 0): number {
+  const n = typeof v === "number" ? v : Number(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : fallback;
 }
 
-export function computeLeaderboard(
-  players: Player[],
-  games: Game[],
-  matches: MatchRow[],
-  minMatches = 10
-) {
-  const playerName = new Map(players.map((p) => [p.id, p.name || p.id]));
-  const gameById = new Map(games.map((g) => [g.game_id, g]));
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
 
-  const statsById = new Map<string, PlayerStats>();
+function normId(v: unknown): string {
+  return String(v ?? "").trim();
+}
+
+/** p1=ganador, p2=2do, etc. */
+export function getMatchPlacements(match: MatchRow): string[] {
+  const raw = [match.p1, match.p2, match.p3, match.p4, match.p5]
+    .map((x) => normId(x))
+    .filter(Boolean);
+
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const p of raw) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      unique.push(p);
+    }
+  }
+  return unique;
+}
+
+export function getGameMultiplier(game?: GameRow): number {
+  const m = toNum(game?.multiplier, 1);
+  return Number.isFinite(m) && m > 0 ? m : 1;
+}
+
+export function computeLeaderboard(args: {
+  players: PlayerRow[];
+  games: GameRow[];
+  matches: MatchRow[];
+  minMatches?: number;
+}): LeaderboardResult {
+  const { players, games, matches } = args;
+  const minMatches = Math.max(0, args.minMatches ?? 1);
+
+  const gameById = new Map<string, GameRow>();
+  for (const g of games) gameById.set(normId(g.game_id), g);
+
+  const playerNameById = new Map<string, string>();
   for (const p of players) {
-    statsById.set(p.id, {
-      player_id: p.id,
-      name: p.name || p.id,
+    const id = normId(p.player_id);
+    playerNameById.set(id, normId(p.name) || id);
+  }
+
+  const statsByPlayer = new Map<string, PlayerStats>();
+  for (const p of players) {
+    const id = normId(p.player_id);
+    statsByPlayer.set(id, {
+      player_id: id,
+      name: playerNameById.get(id) ?? id,
       matches: 0,
       wins: 0,
+      podiums: 0,
       points: 0,
+      avgPoints: 0,
     });
   }
 
   for (const m of matches) {
-    const participants = [m.p1, m.p2, m.p3, m.p4, m.p5].map(s).filter(Boolean);
-    if (participants.length === 0) continue;
+    const placements = getMatchPlacements(m);
+    if (placements.length === 0) continue;
 
-    const g = gameById.get(s(m.game_id));
-    const multiplier = g?.multiplier ?? 1;
+    const game = gameById.get(normId(m.game_id));
+    const mult = getGameMultiplier(game);
 
-    // calcMatchPoints espera: (orderedPlayerIds, multiplier)
-    const raw = calcMatchPoints(participants, multiplier) as Record<string, number>;
+    const ptsByPlayer = calcMatchPoints(placements, mult);
 
-    // winner = max points
-    let winnerId: string | null = null;
-    let best = -Infinity;
+    for (let i = 0; i < placements.length; i++) {
+      const pid = placements[i];
 
-    for (const pid of participants) {
-      if (!statsById.has(pid)) {
-        statsById.set(pid, {
+      if (!statsByPlayer.has(pid)) {
+        statsByPlayer.set(pid, {
           player_id: pid,
-          name: playerName.get(pid) || pid,
+          name: playerNameById.get(pid) ?? pid,
           matches: 0,
           wins: 0,
+          podiums: 0,
           points: 0,
+          avgPoints: 0,
         });
       }
 
-      const st = statsById.get(pid)!;
+      const st = statsByPlayer.get(pid)!;
       st.matches += 1;
-
-      const pts = num(raw[pid], 0);
-      st.points += pts;
-
-      if (pts > best) {
-        best = pts;
-        winnerId = pid;
-      }
-    }
-
-    if (winnerId) {
-      const st = statsById.get(winnerId);
-      if (st) st.wins += 1;
+      if (i === 0) st.wins += 1;
+      if (i <= 2) st.podiums += 1;
+      st.points = round2(st.points + (ptsByPlayer[pid] ?? 0));
     }
   }
 
-  const all = Array.from(statsById.values()).sort((a, b) => {
-    if (b.points !== a.points) return b.points - a.points;
-    if (b.wins !== a.wins) return b.wins - a.wins;
-    return b.matches - a.matches;
+  const all: PlayerStats[] = Array.from(statsByPlayer.values()).map((s) => {
+    const avg = s.matches > 0 ? s.points / s.matches : 0;
+    return { ...s, avgPoints: round2(avg) };
   });
 
-  const eligible = all.filter((x) => x.matches >= minMatches);
+  all.sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    if (b.wins !== a.wins) return b.wins - a.wins;
+    if (b.matches !== a.matches) return b.matches - a.matches;
+    return a.name.localeCompare(b.name);
+  });
+
+  const eligible = all.filter((p) => p.matches >= minMatches);
 
   return { eligible, all, minMatches };
 }
