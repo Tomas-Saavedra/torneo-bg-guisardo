@@ -1,80 +1,83 @@
 // src/lib/sessions.ts
-import type { GameRow, MatchRow, PlayerRow, ScheduleRow } from "./sheets";
-import { computeMatchPoints, getMatchPlacements } from "./league";
-
-export type SessionResultRow = {
-  place: number; // 1..n
-  label: string; // "Ganador", "Segundo", ...
-  player_id: string;
-  player_name: string;
-  points: number;
-};
+import type { Game, Match, ScheduleRow } from "./sheets";
+import { calcMatchPoints } from "./scoring";
 
 export type SessionView = {
-  session_date: string; // "YYYY-MM-DD"
-  start_time: string; // "HH:MM"
+  session_date: string; // YYYY-MM-DD
+  start_time: string; // HH:MM
   game_id: string;
-  game_name: string;
-  results: SessionResultRow[];
+  gameName: string;
+
+  placements: string[]; // en orden (ganador -> ...)
+  pointsByPlayer: Record<string, number>; // ya con multiplicador aplicado
+  multiplier: number;
 };
 
-const PLACE_LABELS = [
-  "Ganador",
-  "Segundo",
-  "Tercero",
-  "4° puesto",
-  "5° puesto",
-];
-
-function s(v: unknown): string {
-  return v === null || v === undefined ? "" : String(v).trim();
+export function safeStr(v: unknown): string {
+  return String(v ?? "").trim();
 }
 
-export function buildSessionsForDate(args: {
-  date: string; // "YYYY-MM-DD"
-  players: PlayerRow[];
-  games: GameRow[];
-  matches: MatchRow[];
-  schedule?: ScheduleRow[]; // opcional, por si querés mostrar datos de la jornada
-}): { sessions: SessionView[]; jornada?: ScheduleRow } {
-  const date = s(args.date);
+export function normalizeDate(v: unknown): string {
+  const s = safeStr(v);
+  // dejamos YYYY-MM-DD tal cual; si viene con hora, cortamos.
+  if (s.includes("T")) return s.split("T")[0]!;
+  if (s.includes(" ")) return s.split(" ")[0]!;
+  return s;
+}
 
-  const playerNameById = new Map<string, string>();
-  for (const p of args.players) playerNameById.set(s(p.player_id), s(p.name || p.player_id));
+export function getPlacements(match: Match): string[] {
+  const raw = [match.p1, match.p2, match.p3, match.p4, match.p5]
+    .map((x) => safeStr(x))
+    .filter(Boolean);
 
-  const gameById = new Map<string, GameRow>();
-  for (const g of args.games) gameById.set(s(g.game_id), g);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of raw) {
+    if (!seen.has(p)) {
+      seen.add(p);
+      out.push(p);
+    }
+  }
+  return out;
+}
 
-  const jornada = args.schedule?.find((j) => s(j.date) === date);
+export function gameMultiplier(game?: Game): number {
+  const m = Number(game?.multiplier ?? 1);
+  return Number.isFinite(m) && m > 0 ? m : 1;
+}
 
-  const sessions: SessionView[] = args.matches
-    .filter((m) => s(m.session_date) === date)
-    .map((m) => {
-      const gameId = s(m.game_id);
-      const game = gameById.get(gameId);
-      const gameName = s(game?.name) || gameId || "(sin juego)";
+export function buildSessions(games: Game[], matches: Match[]): SessionView[] {
+  const gameById = new Map<string, Game>();
+  for (const g of games) gameById.set(safeStr(g.game_id), g);
 
-      const placements = getMatchPlacements(m);
-      const pts = computeMatchPoints(m, game);
+  return matches.map((m) => {
+    const gid = safeStr(m.game_id);
+    const g = gameById.get(gid);
 
-      const results: SessionResultRow[] = placements.map((pid, idx) => {
-        const place = idx + 1;
-        const label = PLACE_LABELS[idx] ?? `${place}° puesto`;
-        const player_name = playerNameById.get(pid) ?? pid;
-        const points = pts.get(pid) ?? 0;
-        return { place, label, player_id: pid, player_name, points };
-      });
+    const mult = gameMultiplier(g);
+    const placements = getPlacements(m);
+    const pointsByPlayer = calcMatchPoints(placements, mult);
 
-      return {
-        session_date: s(m.session_date),
-        start_time: s(m.start_time),
-        game_id: gameId,
-        game_name: gameName,
-        results,
-      };
-    })
-    // orden por hora
+    return {
+      session_date: normalizeDate(m.session_date),
+      start_time: safeStr(m.start_time),
+      game_id: gid,
+      gameName: safeStr(g?.name ?? gid),
+      placements,
+      pointsByPlayer,
+      multiplier: mult,
+    };
+  });
+}
+
+export function sessionsForDate(date: string, games: Game[], matches: Match[]): SessionView[] {
+  const d = normalizeDate(date);
+  return buildSessions(games, matches)
+    .filter((s) => s.session_date === d)
     .sort((a, b) => a.start_time.localeCompare(b.start_time));
+}
 
-  return { sessions, jornada };
+export function scheduleForDate(date: string, schedule: ScheduleRow[]): ScheduleRow | undefined {
+  const d = normalizeDate(date);
+  return schedule.find((s) => normalizeDate(s.date) === d);
 }
