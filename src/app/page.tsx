@@ -1,8 +1,8 @@
 // src/app/page.tsx
 
 import Link from "next/link";
-import { loadGames, loadMatches, loadPlayers, loadSchedule } from "@/lib/sheets";
 import { computeLeaderboard } from "@/lib/league";
+import { loadGames, loadMatches, loadPlayers, loadSchedule } from "@/lib/sheets";
 
 const MIN_MATCHES = 1;
 
@@ -23,17 +23,29 @@ export default async function HomePage() {
 
   const top = (eligible.length ? eligible : all).slice(0, 10);
 
-  const nextDate =
-    schedule
-      .map((s) => String(s.date ?? "").trim())
-      .filter(Boolean)
-      .sort()[0] ?? null;
+  // próxima fecha (más cercana >= hoy, o primera si no hay)
+  const today = new Date();
+  const todayStr = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+    .toISOString()
+    .slice(0, 10);
+
+  const scheduleSorted = [...schedule].sort((a, b) => a.date.localeCompare(b.date));
+  const next = scheduleSorted.find((s) => s.date >= todayStr) ?? scheduleSorted[0];
+
+  const gameById = new Map(games.map((g) => [g.game_id, g]));
+  const nextGames = next
+    ? [next.heavy, next.medium, next.filler1, next.filler2]
+        .map((id) => (id ? gameById.get(id) : undefined))
+        .filter(Boolean)
+    : [];
+
+  console.log("GAME IDS", games.map(g => g.game_id));
 
   return (
-    <main style={{ maxWidth: 900, margin: "0 auto", padding: 20 }}>
-      <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>Liga de Juegos de Mesa</h1>
+    <main style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px" }}>
+      <h1>Liga de Juegos de Mesa</h1>
 
-      <nav style={{ display: "flex", gap: 12, marginBottom: 16 }}>
+      <nav style={{ display: "flex", gap: 12, marginBottom: 18 }}>
         <Link href="/">Inicio</Link>
         <Link href="/ranking">Ranking</Link>
         <Link href="/jornadas">Jornadas</Link>
@@ -41,56 +53,91 @@ export default async function HomePage() {
         <Link href="/calendario">Calendario</Link>
       </nav>
 
-      <section style={{ marginTop: 16 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800 }}>Próxima fecha</h2>
-        {nextDate ? (
-          <p style={{ opacity: 0.8 }}>
-            <Link href={`/jornadas/${nextDate}`}>{nextDate}</Link>
-          </p>
-        ) : (
-          <p style={{ opacity: 0.7 }}>No hay fechas cargadas.</p>
-        )}
-      </section>
+      <h2>Próxima fecha</h2>
 
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 22, fontWeight: 800 }}>Top ranking</h2>
+      {next ? (
+        <div style={{ marginBottom: 18 }}>
+          <div style={{ fontWeight: 700, marginBottom: 8 }}>{next.date}</div>
 
-        {top.length === 0 ? (
-          <p style={{ opacity: 0.7 }}>No hay datos suficientes todavía.</p>
-        ) : (
-          <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 8 }}>
-            <thead>
-              <tr>
-                <th style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #eee" }}>#</th>
-                <th style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #eee" }}>Jugador</th>
-                <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Puntos</th>
-                <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Partidas</th>
-                <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Victorias</th>
-              </tr>
-            </thead>
-            <tbody>
-              {top.map((p, i) => (
-                <tr key={p.id}>
-                  <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0" }}>{i + 1}</td>
-                  <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0" }}>{p.name}</td>
-                  <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.points}</td>
-                  <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.matches}</td>
-                  <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.wins}</td>
-                </tr>
+          {nextGames.length ? (
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+              {nextGames.map((g) => (
+                <div
+                  key={g!.game_id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 10,
+                    border: "1px solid #eee",
+                    borderRadius: 12,
+                    padding: 10,
+                    background: "white",
+                    minWidth: 220,
+                  }}
+                >
+                  {g!.image_url ? (
+                    <img
+                      src={g!.image_url}
+                      alt={g!.name}
+                      width={56}
+                      height={56}
+                      style={{ borderRadius: 10, objectFit: "cover" }}
+                    />
+                  ) : (
+                    <div
+                      style={{
+                        width: 56,
+                        height: 56,
+                        borderRadius: 10,
+                        background: "#f3f3f3",
+                      }}
+                    />
+                  )}
+
+                  <div>
+                    <div style={{ fontWeight: 700 }}>{g!.name}</div>
+                    <div style={{ opacity: 0.75 }}>
+                      {g!.type ? `${g!.type} • ` : ""}
+                      x{g!.multiplier ?? 1}
+                    </div>
+                  </div>
+                </div>
               ))}
-            </tbody>
-          </table>
-        )}
-      </section>
+            </div>
+          ) : (
+            <div style={{ opacity: 0.75 }}>
+              (Completá en <b>Schedules</b>: heavy, medium, filler1, filler2)
+            </div>
+          )}
+        </div>
+      ) : (
+        <div style={{ opacity: 0.75 }}>No hay fechas cargadas en Schedules.</div>
+      )}
 
-      <section style={{ marginTop: 24, opacity: 0.75 }}>
-        <details>
-          <summary>Debug rápido</summary>
-          <div style={{ marginTop: 8 }}>
-            Players: {players.length} • Games: {games.length} • Matches: {matches.length} • Schedule: {schedule.length}
-          </div>
-        </details>
-      </section>
+      <h2>Top ranking</h2>
+
+      <table style={{ width: "100%", borderCollapse: "collapse", marginTop: 10 }}>
+        <thead>
+          <tr>
+            <th style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #eee" }}>#</th>
+            <th style={{ textAlign: "left", padding: 6, borderBottom: "1px solid #eee" }}>Jugador</th>
+            <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Puntos</th>
+            <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Partidas</th>
+            <th style={{ textAlign: "right", padding: 6, borderBottom: "1px solid #eee" }}>Victorias</th>
+          </tr>
+        </thead>
+        <tbody>
+          {top.map((p, i) => (
+            <tr key={p.id}>
+              <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0" }}>{i + 1}</td>
+              <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0" }}>{p.name}</td>
+              <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.points}</td>
+              <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.matches}</td>
+              <td style={{ padding: 6, borderBottom: "1px solid #f0f0f0", textAlign: "right" }}>{p.wins}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </main>
   );
 }

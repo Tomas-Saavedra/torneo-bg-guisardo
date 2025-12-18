@@ -22,6 +22,12 @@ export type ScheduleRow = {
   end_time?: string;
   location?: string;
   notes?: string;
+
+  // NUEVO (game_id)
+  heavy?: string;
+  medium?: string;
+  filler1?: string;
+  filler2?: string;
 };
 
 export type MatchRow = {
@@ -36,7 +42,6 @@ export type MatchRow = {
 };
 
 // ---- CSV helpers ----
-
 function parseCSV(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -59,11 +64,11 @@ function parseCSV(text: string): string[][] {
 
     if (!inQuotes && (ch === "," || ch === "\n" || ch === "\r")) {
       if (ch === "\r" && text[i + 1] === "\n") i++; // CRLF
+
       row.push(cell);
       cell = "";
 
       if (ch === "\n" || ch === "\r") {
-        // cerrar fila (si no es una fila vacía)
         const isEmpty = row.every((c) => (c ?? "").trim() === "");
         if (!isEmpty) rows.push(row);
         row = [];
@@ -74,7 +79,6 @@ function parseCSV(text: string): string[][] {
     cell += ch;
   }
 
-  // último campo/fila
   row.push(cell);
   const isEmpty = row.every((c) => (c ?? "").trim() === "");
   if (!isEmpty) rows.push(row);
@@ -97,6 +101,7 @@ function rowsToObjects(rows: string[][]): Record<string, string>[] {
     }
     out.push(obj);
   }
+
   return out;
 }
 
@@ -113,18 +118,28 @@ function env(name: string): string | undefined {
   return v && v.trim() ? v.trim() : undefined;
 }
 
-// ---- Public loaders ----
+function toNum(v: unknown): number | undefined {
+  const n = Number(String(v ?? "").trim());
+  return Number.isFinite(n) ? n : undefined;
+}
 
+function cleanId(v: unknown): string | undefined {
+  const s = String(v ?? "").trim();
+  return s ? s : undefined;
+}
+
+// ---- Public loaders ----
 export async function loadPlayers(): Promise<Player[]> {
   const url = env("SHEETS_PLAYERS_CSV_URL");
   if (!url) return [];
   const objs = await fetchCsvObjects(url);
 
   return objs
-    .map((o) => ({
-      id: String(o.player_id ?? o.id ?? "").trim(),
-      name: String(o.name ?? o.player_id ?? o.id ?? "").trim(),
-    }))
+    .map((o) => {
+      const id = String(o.player_id ?? o.id ?? "").trim();
+      const name = String(o.name ?? o.player_id ?? o.id ?? "").trim();
+      return { id, name };
+    })
     .filter((p) => p.id);
 }
 
@@ -137,11 +152,11 @@ export async function loadGames(): Promise<Game[]> {
     .map((o) => ({
       game_id: String(o.game_id ?? "").trim(),
       name: String(o.name ?? o.game_id ?? "").trim(),
-      type: String(o.type ?? "").trim() || undefined,
-      multiplier: o.multiplier ? Number(String(o.multiplier).trim()) : undefined,
-      min_p: o.min_p ? Number(String(o.min_p).trim()) : undefined,
-      max_p: o.max_p ? Number(String(o.max_p).trim()) : undefined,
-      image_url: String(o.image_url ?? "").trim() || undefined,
+      type: cleanId(o.type),
+      multiplier: toNum(o.multiplier),
+      min_p: toNum(o.min_p),
+      max_p: toNum(o.max_p),
+      image_url: cleanId(o.image_url),
     }))
     .filter((g) => g.game_id);
 }
@@ -154,10 +169,16 @@ export async function loadSchedule(): Promise<ScheduleRow[]> {
   return objs
     .map((o) => ({
       date: String(o.date ?? "").trim(),
-      start_time: String(o.start_time ?? "").trim() || undefined,
-      end_time: String(o.end_time ?? "").trim() || undefined,
-      location: String(o.location ?? "").trim() || undefined,
-      notes: String(o.notes ?? "").trim() || undefined,
+      start_time: cleanId(o.start_time),
+      end_time: cleanId(o.end_time),
+      location: cleanId(o.location),
+      notes: cleanId(o.notes),
+
+      // NUEVO (game_id)
+      heavy: cleanId(o.heavy),
+      medium: cleanId(o.medium),
+      filler1: cleanId(o.filler1),
+      filler2: cleanId(o.filler2),
     }))
     .filter((s) => s.date);
 }
@@ -171,12 +192,12 @@ export async function loadMatches(): Promise<MatchRow[]> {
     .map((o) => ({
       session_date: String(o.session_date ?? o.date ?? "").trim(),
       game_id: String(o.game_id ?? "").trim(),
-      start_time: String(o.start_time ?? "").trim() || undefined,
-      p1: String(o.p1 ?? "").trim() || undefined,
-      p2: String(o.p2 ?? "").trim() || undefined,
-      p3: String(o.p3 ?? "").trim() || undefined,
-      p4: String(o.p4 ?? "").trim() || undefined,
-      p5: String(o.p5 ?? "").trim() || undefined,
+      start_time: cleanId(o.start_time),
+      p1: cleanId(o.p1),
+      p2: cleanId(o.p2),
+      p3: cleanId(o.p3),
+      p4: cleanId(o.p4),
+      p5: cleanId(o.p5),
     }))
     .filter((m) => m.session_date && m.game_id);
 }

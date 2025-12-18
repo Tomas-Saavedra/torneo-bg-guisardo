@@ -1,9 +1,11 @@
 // src/lib/sessions.ts
+
 import type { Game, MatchRow, ScheduleRow } from "./sheets";
 import { calcMatchPoints, getPlacementsFromMatch } from "./scoring";
 
 export type SessionMatchView = {
   id: string;
+
   session_date: string;
   start_time?: string;
 
@@ -39,17 +41,17 @@ export function buildMatchesForDate(args: {
 
   const out: SessionMatchView[] = filtered.map((m, idx) => {
     const gid = String(m.game_id ?? "").trim();
-    const g = gameById.get(gid);
+    const game = gameById.get(gid);
 
-    const game_name = String(g?.name ?? gid).trim();
-    const mult = toNum(g?.multiplier, 1);
+    const game_name = String(game?.name ?? gid).trim();
+    const mult = toNum(game?.multiplier, 1);
 
     const placements = getPlacementsFromMatch(m);
     const pointsByPlayer = calcMatchPoints(placements, mult);
 
     return {
-      id: `${date}-${gid}-${m.start_time ?? ""}-${idx}`,
-      session_date: date,
+      id: `${m.session_date}-${gid}-${m.start_time ?? ""}-${idx}`,
+      session_date: m.session_date,
       start_time: m.start_time,
 
       game_id: gid,
@@ -61,13 +63,14 @@ export function buildMatchesForDate(args: {
     };
   });
 
-  // ordenar por start_time si existe
   out.sort((a, b) => String(a.start_time ?? "").localeCompare(String(b.start_time ?? "")));
-
   return out;
 }
 
-export function findScheduleForDate(schedule: ScheduleRow[], date: string): ScheduleRow | undefined {
+export function findScheduleForDate(
+  schedule: ScheduleRow[],
+  date: string
+): ScheduleRow | undefined {
   const d = normDate(date);
   return schedule.find((s) => normDate(s.date) === d);
 }

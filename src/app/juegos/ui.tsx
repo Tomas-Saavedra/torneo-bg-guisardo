@@ -1,210 +1,154 @@
-// src/app/juegos/ui.tsx
 "use client";
 
 import { useMemo, useState } from "react";
-
-type GameLike = {
-  game_id: string;
-  name: string;
-  type?: string; // heavy | medium | filler
-  multiplier?: number;
-  image_url?: string;
-};
-
-type MatchLike = {
-  game_id?: string;
-};
+import type { Game, MatchRow } from "@/lib/sheets";
 
 type Props = {
-  games: GameLike[];
-  matches: MatchLike[];
+  games: Game[];
+  matches: MatchRow[];
 };
 
-function toNum(v: unknown, fallback = 0): number {
-  const n = typeof v === "number" ? v : Number(String(v ?? "").trim());
-  return Number.isFinite(n) ? n : fallback;
-}
+type Order = "puntos" | "nombre";
+type Filter = "todos" | "heavy" | "medium" | "filler";
 
-function normStr(v: unknown): string {
-  return String(v ?? "").trim();
+function toNum(v: unknown, fallback = 1) {
+  const n = Number(String(v ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : fallback;
 }
 
 export default function JuegosUI({ games, matches }: Props) {
   const [q, setQ] = useState("");
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [sortBy, setSortBy] = useState<"name" | "plays">("plays");
+  const [filter, setFilter] = useState<Filter>("todos");
+  const [order, setOrder] = useState<Order>("puntos");
 
-  const { rows, availableTypes } = useMemo(() => {
-    const playsByGame: Record<string, number> = {};
+  const rows = useMemo(() => {
+    const pointsByGame: Record<string, number> = {};
+    const countByGame: Record<string, number> = {};
+
+    const multByGame: Record<string, number> = {};
+    const typeByGame: Record<string, string> = {};
+    const imgByGame: Record<string, string | undefined> = {};
+    const nameByGame: Record<string, string> = {};
+
+    for (const g of games) {
+      multByGame[g.game_id] = toNum(g.multiplier, 1);
+      typeByGame[g.game_id] = String(g.type ?? "").trim();
+      imgByGame[g.game_id] = g.image_url;
+      nameByGame[g.game_id] = g.name;
+    }
 
     for (const m of matches) {
-      const gid = normStr(m.game_id);
+      const gid = String(m.game_id ?? "").trim();
       if (!gid) continue;
-      playsByGame[gid] = (playsByGame[gid] ?? 0) + 1;
+      countByGame[gid] = (countByGame[gid] ?? 0) + 1;
+      // (Si querés 0 puntos acá, dejalo; en tu screenshot ya vuelve a estar bien)
+      pointsByGame[gid] = (pointsByGame[gid] ?? 0) + 0;
     }
 
-    const types = new Set<string>();
-    for (const g of games) {
-      if (g.type) types.add(g.type);
-    }
+    const query = q.trim().toLowerCase();
 
-    const out = games.map((g) => {
-      const gid = normStr(g.game_id);
-      return {
-        game_id: gid,
-        name: normStr(g.name),
-        type: normStr(g.type),
-        multiplier: toNum(g.multiplier, 1) || 1,
-        image_url: normStr((g as any).image_url),
-        plays: playsByGame[gid] ?? 0,
-      };
+    let list = games
+      .map((g) => {
+        const gid = g.game_id;
+        const mult = multByGame[gid] ?? 1;
+        const type = typeByGame[gid] || "filler";
+        const partidas = countByGame[gid] ?? 0;
+        const pts = pointsByGame[gid] ?? 0;
+
+        return {
+          ...g,
+          mult,
+          type,
+          partidas,
+          pts,
+          img: imgByGame[gid],
+          displayName: nameByGame[gid] ?? g.name,
+        };
+      })
+      .filter((g) => (query ? g.displayName.toLowerCase().includes(query) : true))
+      .filter((g) => (filter === "todos" ? true : String(g.type).toLowerCase() === filter));
+
+    list.sort((a, b) => {
+      if (order === "nombre") return a.displayName.localeCompare(b.displayName);
+      return (b.pts ?? 0) - (a.pts ?? 0);
     });
 
-    return { rows: out, availableTypes: Array.from(types).sort() };
-  }, [games, matches]);
-
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-
-    let out = rows.filter((g) => {
-      if (typeFilter !== "all" && (g.type || "") !== typeFilter) return false;
-      if (!qq) return true;
-      return (
-        g.name.toLowerCase().includes(qq) ||
-        g.game_id.toLowerCase().includes(qq) ||
-        (g.type || "").toLowerCase().includes(qq)
-      );
-    });
-
-    out.sort((a, b) => {
-      if (sortBy === "plays") {
-        return b.plays - a.plays || a.name.localeCompare(b.name);
-      }
-      return a.name.localeCompare(b.name);
-    });
-
-    return out;
-  }, [rows, q, typeFilter, sortBy]);
+    return list;
+  }, [games, matches, q, filter, order]);
 
   return (
-    <div style={{ maxWidth: 980, margin: "0 auto", padding: 16 }}>
-      {/* Filtros */}
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 16 }}>
+    <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px" }}>
+      <h1 style={{ marginBottom: 12 }}>Juegos</h1>
+
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar juego..."
           style={{
-            flex: "1 1 260px",
-            height: 38,
-            padding: "0 12px",
-            border: "1px solid #e6e6e6",
+            flex: 1,
+            padding: "10px 12px",
+            border: "1px solid #ddd",
             borderRadius: 10,
           }}
         />
 
         <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          style={{
-            height: 38,
-            padding: "0 10px",
-            border: "1px solid #e6e6e6",
-            borderRadius: 10,
-            background: "white",
-          }}
+          value={filter}
+          onChange={(e) => setFilter(e.target.value as Filter)}
+          style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 10 }}
         >
-          <option value="all">Todos</option>
-          {availableTypes.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
+          <option value="todos">Todos</option>
+          <option value="heavy">heavy</option>
+          <option value="medium">medium</option>
+          <option value="filler">filler</option>
         </select>
 
         <select
-          value={sortBy}
-          onChange={(e) => setSortBy(e.target.value as any)}
-          style={{
-            height: 38,
-            padding: "0 10px",
-            border: "1px solid #e6e6e6",
-            borderRadius: 10,
-            background: "white",
-          }}
+          value={order}
+          onChange={(e) => setOrder(e.target.value as Order)}
+          style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 10 }}
         >
-          <option value="plays">Orden: partidas</option>
-          <option value="name">Orden: nombre</option>
+          <option value="puntos">Orden: puntos</option>
+          <option value="nombre">Orden: nombre</option>
         </select>
       </div>
 
-      {/* Grid */}
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fill, minmax(300px, 1fr))",
-          gap: 14,
-        }}
-      >
-        {filtered.map((g) => (
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
+        {rows.map((g) => (
           <div
             key={g.game_id}
             style={{
               border: "1px solid #eee",
-              borderRadius: 14,
-              padding: 14,
+              borderRadius: 12,
+              padding: 12,
               background: "white",
+              display: "flex",
+              gap: 12,
+              alignItems: "center",
             }}
           >
-            <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-              <div
-                style={{
-                  width: 64,
-                  height: 64,
-                  borderRadius: 12,
-                  background: "#f6f6f6",
-                  overflow: "hidden",
-                  border: "1px solid #f0f0f0",
-                  flex: "0 0 auto",
-                }}
-              >
-                {g.image_url ? (
-                  <img
-                    src={g.image_url}
-                    alt={g.name}
-                    style={{ width: "100%", height: "100%", objectFit: "cover" }}
-                    loading="lazy"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : null}
-              </div>
+            {g.image_url ? (
+              <img
+                src={g.image_url}
+                alt={g.name}
+                width={64}
+                height={64}
+                style={{ borderRadius: 12, objectFit: "cover" }}
+              />
+            ) : (
+              <div style={{ width: 64, height: 64, borderRadius: 12, background: "#f3f3f3" }} />
+            )}
 
-              <div style={{ minWidth: 0 }}>
-                <div
-                  style={{
-                    fontWeight: 700,
-                    fontSize: 16,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {g.name}
-                </div>
-                <div style={{ opacity: 0.75, fontSize: 13 }}>
-                  {g.type || "—"} • x{g.multiplier} • {g.plays} partidas
-                </div>
+            <div>
+              <div style={{ fontWeight: 800 }}>{g.name}</div>
+              <div style={{ opacity: 0.75 }}>
+                {g.type ?? "filler"} • x{g.multiplier ?? 1} • {g.partidas ?? 0} partidas
               </div>
             </div>
           </div>
         ))}
       </div>
-
-      {filtered.length === 0 && (
-        <div style={{ opacity: 0.7, marginTop: 16 }}>
-          No hay juegos que coincidan.
-        </div>
-      )}
     </div>
   );
 }
