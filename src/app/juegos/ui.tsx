@@ -22,7 +22,6 @@ export default function JuegosUI({ games, matches }: Props) {
   const [order, setOrder] = useState<Order>("partidas");
 
   const rows = useMemo(() => {
-    const pointsByGame: Record<string, number> = {};
     const countByGame: Record<string, number> = {};
 
     const multByGame: Record<string, number> = {};
@@ -31,38 +30,38 @@ export default function JuegosUI({ games, matches }: Props) {
     const nameByGame: Record<string, string> = {};
 
     for (const g of games) {
-      multByGame[g.game_id] = toNum(g.multiplier, 1);
-      typeByGame[g.game_id] = String(g.type ?? "").trim();
-      imgByGame[g.game_id] = g.image_url;
-      nameByGame[g.game_id] = g.name;
+      const gid = String(g.game_id ?? "").trim();
+      if (!gid) continue;
+
+      multByGame[gid] = toNum((g as any).multiplier, 1);
+      typeByGame[gid] = String((g as any).type ?? "").trim().toLowerCase() || "filler";
+      imgByGame[gid] = (g as any).image_url ?? undefined;
+      nameByGame[gid] = String((g as any).name ?? gid);
     }
 
     for (const m of matches) {
-      const gid = String(m.game_id ?? "").trim();
+      const gid = String((m as any).game_id ?? "").trim();
       if (!gid) continue;
       countByGame[gid] = (countByGame[gid] ?? 0) + 1;
-      // (Si querés 0 puntos acá, dejalo; en tu screenshot ya vuelve a estar bien)
-      pointsByGame[gid] = (pointsByGame[gid] ?? 0) + 0;
     }
 
     const query = q.trim().toLowerCase();
 
     let list = games
       .map((g) => {
-        const gid = g.game_id;
+        const gid = String(g.game_id ?? "").trim();
         const mult = multByGame[gid] ?? 1;
-        const type = typeByGame[gid] || "filler";
-        const partidas = countByGame[gid] ?? 0;
-        const pts = pointsByGame[gid] ?? 0;
+        const type = typeByGame[gid] ?? "filler";
+        const partidas = Number(countByGame[gid] ?? 0);
 
         return {
           ...g,
+          gid,
           mult,
           type,
           partidas,
-          pts,
           img: imgByGame[gid],
-          displayName: nameByGame[gid] ?? g.name,
+          displayName: nameByGame[gid] ?? String((g as any).name ?? gid),
         };
       })
       .filter((g) => (query ? g.displayName.toLowerCase().includes(query) : true))
@@ -70,7 +69,10 @@ export default function JuegosUI({ games, matches }: Props) {
 
     list.sort((a, b) => {
       if (order === "nombre") return a.displayName.localeCompare(b.displayName);
-      return (b.partidas ?? 0) - (a.partidas ?? 0);
+      const bp = Number(b.partidas ?? 0);
+      const ap = Number(a.partidas ?? 0);
+      if (bp !== ap) return bp - ap;
+      return a.displayName.localeCompare(b.displayName);
     });
 
     return list;
@@ -78,15 +80,77 @@ export default function JuegosUI({ games, matches }: Props) {
 
   return (
     <div style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px" }}>
+      <style jsx>{`
+        .controls {
+          display: flex;
+          gap: 10px;
+          align-items: center;
+          margin-bottom: 12px;
+          flex-wrap: wrap;
+        }
+        .search {
+          flex: 1;
+          min-width: 220px;
+        }
+        .grid {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 12px;
+        }
+        @media (max-width: 960px) {
+          .grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (max-width: 640px) {
+          .grid {
+            grid-template-columns: 1fr;
+          }
+        }
+        .card {
+          border: 1px solid #eee;
+          border-radius: 12px;
+          padding: 12px;
+          background: white;
+          display: flex;
+          gap: 12px;
+          align-items: center;
+          min-width: 0;
+        }
+        .img {
+          width: 92px;
+          height: 92px;
+          border-radius: 12px;
+          object-fit: cover;
+          flex: 0 0 auto;
+          background: #f3f3f3;
+        }
+        @media (max-width: 640px) {
+          .img {
+            width: 72px;
+            height: 72px;
+          }
+        }
+        .title {
+          font-weight: 800;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .meta {
+          opacity: 0.75;
+        }
+      `}</style>
+
       <h1 style={{ marginBottom: 12 }}>Juegos</h1>
 
-      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+      <div className="controls">
         <input
+          className="search"
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Buscar juego..."
           style={{
-            flex: 1,
             padding: "10px 12px",
             border: "1px solid #ddd",
             borderRadius: 10,
@@ -114,36 +178,19 @@ export default function JuegosUI({ games, matches }: Props) {
         </select>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, minmax(0, 1fr))", gap: 12 }}>
-        {rows.map((g) => (
-          <div
-            key={g.game_id}
-            style={{
-              border: "1px solid #eee",
-              borderRadius: 12,
-              padding: 12,
-              background: "white",
-              display: "flex",
-              gap: 12,
-              alignItems: "center",
-            }}
-          >
-            {g.image_url ? (
-              <img
-                src={g.image_url}
-                alt={g.name}
-                width={120}
-                height={120}
-                style={{ borderRadius: 12, objectFit: "cover" }}
-              />
+      <div className="grid">
+        {rows.map((g: any) => (
+          <div key={g.gid} className="card">
+            {g.img ? (
+              <img className="img" src={g.img} alt={g.displayName} />
             ) : (
-              <div style={{ width: 64, height: 64, borderRadius: 12, background: "#f3f3f3" }} />
+              <div className="img" />
             )}
 
-            <div>
-              <div style={{ fontWeight: 800 }}>{g.name}</div>
-              <div style={{ opacity: 0.75 }}>
-                {g.type ?? "filler"} • x{g.multiplier ?? 1} • {g.partidas ?? 0} partidas
+            <div style={{ minWidth: 0 }}>
+              <div className="title">{g.displayName}</div>
+              <div className="meta">
+                {(g.type ?? "filler").toLowerCase()} • x{g.mult ?? 1} • {g.partidas ?? 0} partidas
               </div>
             </div>
           </div>
