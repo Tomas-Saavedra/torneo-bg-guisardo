@@ -40,9 +40,6 @@ export default async function JornadasPage() {
   return (
     <main style={{ maxWidth: 900, margin: "0 auto", padding: 24 }}>
       <h1 style={{ marginBottom: 8 }}>Jornadas</h1>
-      <p style={{ marginTop: 0, opacity: 0.8 }}>
-        Elegí una fecha para ver los matches y resultados.
-      </p>
 
       <section style={{ marginTop: 16 }}>
         <h2 style={{ marginBottom: 8 }}>Próxima fecha</h2>
@@ -71,18 +68,6 @@ export default async function JornadasPage() {
                 <div style={{ opacity: 0.8, marginTop: 4 }}>Sin info en Schedules</div>
               )}
             </div>
-
-            <Link
-              href={`/jornadas/${encodeURIComponent(nextDate)}`}
-              style={{
-                padding: "10px 12px",
-                borderRadius: 10,
-                border: "1px solid #ddd",
-                textDecoration: "none",
-              }}
-            >
-              Ver jornada →
-            </Link>
           </div>
         ) : (
           <p>No hay fechas cargadas todavía.</p>

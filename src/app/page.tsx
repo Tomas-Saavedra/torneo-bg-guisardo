@@ -43,15 +43,8 @@ export default async function HomePage() {
 
   return (
     <main style={{ maxWidth: 980, margin: "0 auto", padding: "24px 16px" }}>
-      <h1>Liga de Juegos de Mesa</h1>
-
-      <nav style={{ display: "flex", gap: 12, marginBottom: 18 }}>
-        <Link href="/">Inicio</Link>
-        <Link href="/ranking">Ranking</Link>
-        <Link href="/jornadas">Jornadas</Link>
-        <Link href="/juegos">Juegos</Link>
-        <Link href="/calendario">Calendario</Link>
-      </nav>
+      <h1>Torneo BG Guisardo</h1>
+      <h3>Temporada 1 - Diciembre 2025 a Febrero 2026</h3>
 
       <h2>Próxima fecha</h2>
 
@@ -79,8 +72,8 @@ export default async function HomePage() {
                     <img
                       src={g!.image_url}
                       alt={g!.name}
-                      width={56}
-                      height={56}
+                      width={120}
+                      height={120}
                       style={{ borderRadius: 10, objectFit: "cover" }}
                     />
                   ) : (

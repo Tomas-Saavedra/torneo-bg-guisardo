@@ -8,7 +8,7 @@ type Props = {
   matches: MatchRow[];
 };
 
-type Order = "puntos" | "nombre";
+type Order = "partidas" | "nombre";
 type Filter = "todos" | "heavy" | "medium" | "filler";
 
 function toNum(v: unknown, fallback = 1) {
@@ -19,7 +19,7 @@ function toNum(v: unknown, fallback = 1) {
 export default function JuegosUI({ games, matches }: Props) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState<Filter>("todos");
-  const [order, setOrder] = useState<Order>("puntos");
+  const [order, setOrder] = useState<Order>("partidas");
 
   const rows = useMemo(() => {
     const pointsByGame: Record<string, number> = {};
@@ -70,7 +70,7 @@ export default function JuegosUI({ games, matches }: Props) {
 
     list.sort((a, b) => {
       if (order === "nombre") return a.displayName.localeCompare(b.displayName);
-      return (b.pts ?? 0) - (a.pts ?? 0);
+      return (b.partidas ?? 0) - (a.partidas ?? 0);
     });
 
     return list;
@@ -109,7 +109,7 @@ export default function JuegosUI({ games, matches }: Props) {
           onChange={(e) => setOrder(e.target.value as Order)}
           style={{ padding: "10px 12px", border: "1px solid #ddd", borderRadius: 10 }}
         >
-          <option value="puntos">Orden: puntos</option>
+          <option value="partidas">Orden: partidas</option>
           <option value="nombre">Orden: nombre</option>
         </select>
       </div>
@@ -132,8 +132,8 @@ export default function JuegosUI({ games, matches }: Props) {
               <img
                 src={g.image_url}
                 alt={g.name}
-                width={64}
-                height={64}
+                width={120}
+                height={120}
                 style={{ borderRadius: 12, objectFit: "cover" }}
               />
             ) : (

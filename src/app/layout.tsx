@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export const metadata: Metadata = {
-  title: "Liga de Juegos de Mesa",
+  title: "Torneo BG Guisardo",
   description: "Resultados y ranking de la liga competitiva",
 };
 
